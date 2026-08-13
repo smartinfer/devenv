@@ -75,6 +75,10 @@ err()  { printf "%s  x %s%s\n" "$C_RD" "$*" "$C_R"; logline "    [err] $*"; }
 die()  { err "$*"; exit 1; }
 dim()  { printf "    %s%s%s\n" "$C_D" "$*" "$C_R"; logline "    $*"; }
 
+# mise activates through a zsh hook that bash never sources. Put the shim dir
+# on PATH explicitly so mise-provided tools are visible to this script.
+[ -d "$HOME/.local/share/mise/shims" ] && PATH="$HOME/.local/share/mise/shims:$PATH"
+
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # Run a command: always logged, shown only when --verbose.
