@@ -175,8 +175,12 @@ regen_shell() {
     echo "# sourced from ~/.zprofile AFTER macOS /etc/zprofile runs path_helper,"
     echo "# which is why these prepends survive. Idempotent + de-duplicating."
     echo 'devenv_path_prepend() {'
-    echo '  case ":$PATH:" in *":$1:"*) return 0 ;; esac'
-    echo '  [ -d "$1" ] && PATH="$1:$PATH"'
+    echo '  [ -d "$1" ] || return 0'
+    echo '  # Remove any existing occurrence first, then prepend. Skipping when'
+    echo '  # already present is wrong: macOS path_helper appends /etc/paths.d'
+    echo '  # entries, so a dir can be on PATH but in last place.'
+    echo '  PATH=$(printf %s "$PATH" | tr ":" "\\n" | grep -vx "$1" | paste -sd: -)'
+    echo '  PATH="$1:$PATH"'
     echo '}'
     awk -F'\t' '$2=="path"{printf "devenv_path_prepend \"%s\"\n", $3}' "$SHELLENTS"
     echo 'export PATH'
