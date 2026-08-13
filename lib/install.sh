@@ -15,13 +15,17 @@ gh_asset_url() {
 
 unpack_into() {  # unpack_into <file> <destdir>
   local f="$1" d="$2"; mkdir -p "$d"
-  case "$f" in
-    *.zip)          unzip -q "$f" -d "$d" ;;
-    *.tar.gz|*.tgz) tar -xzf "$f" -C "$d" ;;
-    *.tar.bz2|*.tbz)tar -xjf "$f" -C "$d" ;;
-    *.tar.xz)       tar -xJf "$f" -C "$d" ;;
-    *)              cp "$f" "$d/" ;;
+  # Sniff the content. Switching on the filename broke every download, because
+  # the temp file is named "pkg" with no extension and fell through to cp.
+  case "$(file -b "$f" 2>/dev/null)" in
+    *Zip*)   unzip -oq "$f" -d "$d" ;;
+    *gzip*)  tar -xzf "$f" -C "$d" ;;
+    *bzip2*) tar -xjf "$f" -C "$d" ;;
+    *XZ*|*xz*) tar -xJf "$f" -C "$d" ;;
+    *)       cp "$f" "$d/" ;;
   esac
+  rm -rf "$d/__MACOSX" 2>/dev/null
+  return 0
 }
 
 install_gh_bin() {  # <repo> <asset-pattern> <binary-name>
@@ -33,7 +37,7 @@ install_gh_bin() {  # <repo> <asset-pattern> <binary-name>
   tmp=$(mktemp -d) || return 1
   run curl -fsSL "$url" -o "$tmp/pkg" || { rm -rf "$tmp"; return 1; }
   unpack_into "$tmp/pkg" "$tmp/x" >>"$LOGFILE" 2>&1
-  found=$(find "$tmp/x" -type f -name "$bin" 2>/dev/null | head -1)
+  found=$(find "$tmp/x" -type f -name "$bin" -not -path "*__MACOSX*" 2>/dev/null | head -1)
   [ -n "$found" ] || { err "binary '$bin' not found inside archive"; rm -rf "$tmp"; return 1; }
   install -m 0755 "$found" "$LOCAL_BIN/$bin"
   rm -rf "$tmp"
@@ -56,7 +60,9 @@ install_gh_tree() {  # <repo> <asset-pattern> <opt-dirname> <bin-subdir-or-empty
   rm -rf "$tmp"
   if [ -n "$binsub" ] && [ -d "$LOCAL_OPT/$dir/$binsub" ]; then
     for f in "$LOCAL_OPT/$dir/$binsub"/*; do
-      [ -f "$f" ] && [ -x "$f" ] && ln -sf "$f" "$LOCAL_BIN/$(basename "$f")"
+      [ -f "$f" ] || continue
+      chmod +x "$f" 2>/dev/null   # release tarballs often ship without the bit
+      ln -sf "$f" "$LOCAL_BIN/$(basename "$f")"
     done
   fi
   return 0
