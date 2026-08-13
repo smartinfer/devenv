@@ -10,7 +10,9 @@ gh_asset_url() {
   curl -fsSL "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null \
     | grep -o '"browser_download_url": *"[^"]*"' \
     | sed 's/.*"\(https[^"]*\)"/\1/' \
-    | grep -iE -- "$pat" | head -1
+    | grep -iE -- "$pat" \
+    | grep -viE '\.(pem|sig|asc|sbom|json|txt|sha256|sha512|md5)$' \
+    | head -1
 }
 
 unpack_into() {  # unpack_into <file> <destdir>
@@ -38,6 +40,15 @@ install_gh_bin() {  # <repo> <asset-pattern> <binary-name>
   run curl -fsSL "$url" -o "$tmp/pkg" || { rm -rf "$tmp"; return 1; }
   unpack_into "$tmp/pkg" "$tmp/x" >>"$LOGFILE" 2>&1
   found=$(find "$tmp/x" -type f -name "$bin" -not -path "*__MACOSX*" 2>/dev/null | head -1)
+  # Some projects ship a bare executable named e.g. frankenphp-mac-arm64
+  # rather than an archive containing "frankenphp".
+  if [ -z "$found" ]; then
+    found=$(find "$tmp/x" -type f -name "$bin*" -not -path "*__MACOSX*" 2>/dev/null | head -1)
+  fi
+  if [ -z "$found" ]; then
+    local only; only=$(find "$tmp/x" -type f 2>/dev/null)
+    [ "$(printf '%s\n' "$only" | wc -l | tr -d ' ')" = "1" ] && found="$only"
+  fi
   [ -n "$found" ] || { err "binary '$bin' not found inside archive"; rm -rf "$tmp"; return 1; }
   install -m 0755 "$found" "$LOCAL_BIN/$bin"
   rm -rf "$tmp"

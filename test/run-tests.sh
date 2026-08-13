@@ -210,8 +210,11 @@ assert_has "$(run_dev clusters)" "20-systems"      "dev clusters lists clusters"
 assert_has "$(run_dev clusters)" "rust"            "dev clusters lists items"
 assert_has "$(run_dev status)"   "CLUSTER"         "dev status renders a table"
 assert_has "$(run_dev status --commands)" "dev install" "status --commands emits commands"
-assert_has "$(run_dev plan rust)" "PURGE"          "dev plan shows the purge line"
-assert_has "$(run_dev plan rust)" "sh.rustup.rs"   "dev plan discloses the network source"
+# Render directly rather than through `dev plan`: plan skips items that are
+# already installed, so these assertions silently inverted once rust landed.
+RCARD=$(footprint_card rust missing 2>&1)
+assert_has "$RCARD" "PURGE"        "footprint card shows the purge line"
+assert_has "$RCARD" "sh.rustup.rs" "footprint card discloses the network source"
 # Render the card directly. Going through `dev plan` made this depend on
 # whether the item happened to be installed — plan skips items already ok.
 CARD=$(footprint_card clt missing 2>&1)
