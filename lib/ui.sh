@@ -86,7 +86,7 @@ prompt_item() {
 
 ask_note() {
   local note
-  printf "  why? (enter to skip) → "
+  printf '%s' "  why? (enter to skip) -> "
   read -r note </dev/tty || note=""
   printf '%s' "$note"
 }

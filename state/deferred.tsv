@@ -1,1 +1,4 @@
 name	cluster	mode	date	count	note
+sbcl	24-symbolic	later	2026-08-13	1	pinned URL stale (2.4.10 gone from SourceForge), install when a Lisp project appears
+quicklisp	24-symbolic	later	2026-08-13	1	blocked on sbcl
+cursor	41-editors	later	2026-08-13	1	manual .dmg download, VS Code sufficient for now
