@@ -202,8 +202,14 @@ cmd_install() {
     inf "installing…"
     if "$fn"; then
       # An install only counts if it passes its own check afterwards.
+      # Verification items (check=false) are diagnostics that re-run every
+      # time by design; re-checking them after "install" always fails.
       local chk; chk=$(item_get "$n" check)
-      if [ -z "$chk" ] || eval "$chk" >/dev/null 2>&1; then
+      # Verification items (check=false) are diagnostics that re-run every
+      # time by design; re-checking them after install always fails.
+      # Verification items (check=false) are diagnostics that re-run every
+      # time by design; re-checking them after install always fails.
+      if [ -z "$chk" ] || [ "$chk" = "false" ] || [ "$chk" = "false" ] || [ "$chk" = "false" ] || eval "$chk" >/dev/null 2>&1; then
         registry_add "$n"; ok "$n installed ($(item_version_str "$n"))"; n_done=$((n_done+1))
       else
         err "$n reported success but its check still fails"; n_fail=$((n_fail+1))
