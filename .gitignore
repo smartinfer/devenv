@@ -1,0 +1,11 @@
+# devenv — generated and machine-specific
+state/registry.tsv
+state/shellents.tsv
+state/logs/
+shell/*.zsh
+
+# keep these tracked
+!state/deferred.tsv
+!.gitkeep
+
+.DS_Store

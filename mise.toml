@@ -1,0 +1,56 @@
+# ~/.mac-env/mise.toml
+# Symlinked to ~/.config/mise/config.toml by dev.sh.
+# Declarative global runtime registry. `mise install` reconciles it.
+#
+# RULE: mise owns runtimes it can install as PREBUILT binaries.
+# Anything that compiles from source, or that has a better native manager,
+# is NOT listed here. That exclusion list is at the bottom and is the whole
+# reason this file stays small.
+
+[tools]
+
+# --- runtimes -------------------------------------------------------------
+node  = "22"              # Quint, Gemini CLI, all web tooling
+go    = "1.23"
+pnpm  = "latest"
+
+# Pinned LTS + vendor. NOT "latest": Apalache and Alloy are the only
+# consumers, and they are not tested against every new JDK. You do not
+# write Java here; this is a dependency of the model checkers.
+java  = "temurin-21"
+
+# Optional, uncomment if you want them:
+# deno = "latest"
+# bun  = "latest"
+# zig  = "latest"
+
+[settings]
+# Fail loudly rather than silently resolving a tool from an unvetted plugin.
+experimental = false
+# asdf plugins are community-maintained with no vetting; prefer the
+# first-party backends (aqua/ubi/core) that mise resolves by default.
+
+# ===========================================================================
+# DELIBERATELY NOT MANAGED BY MISE — each has a better owner
+# ===========================================================================
+#
+# python  -> uv.        Listing python here AND installing uv gives you two
+#                       interpreter sets shadowing each other on PATH. This
+#                       is the single most common way a Mac Python setup rots.
+#                       uv manages interpreters, venvs, tools, and cache.
+#
+# sbcl    -> tarball.   mise's sbcl plugin compiles from source, bootstraps
+#                       via ECL on macOS, and needs zstd with CPATH and
+#                       LIBRARY_PATH set — which on a Mac means a package
+#                       manager. The plugin's own README recommends against
+#                       it. dev.sh pulls the prebuilt arm64-darwin tarball.
+#
+# rust    -> rustup.    Owns toolchains, components, cross targets.
+# ocaml   -> opam.      Owns switches; a bare opam binary gives you no compiler.
+# haskell -> ghcup.     Owns ghc/cabal/stack/hls together.
+# julia   -> juliaup.
+# lean    -> elan.
+# tex     -> tlmgr.     TeX Live has its own package manager.
+#
+# Mixing a general version manager with a language's native manager is what
+# creates the shadowing and version drift you are trying to avoid.

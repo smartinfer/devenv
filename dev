@@ -1,0 +1,495 @@
+#!/usr/bin/env bash
+#
+# dev — Anjan Goswami's macOS developer environment manager
+# SmartInfer, Inc.
+#
+# Bash 3.2 compatible (macOS ships bash 3.2 and that is the floor here).
+#
+set -uo pipefail
+
+DEV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export DEV_ROOT
+
+. "$DEV_ROOT/lib/core.sh"
+. "$DEV_ROOT/lib/item.sh"
+. "$DEV_ROOT/lib/ui.sh"
+. "$DEV_ROOT/lib/install.sh"
+
+tsv_init
+load_clusters
+
+VERSION="1.0.0"
+
+# ---------------------------------------------------------------------------
+# help
+# ---------------------------------------------------------------------------
+cmd_help() {
+cat <<'HELP'
+dev — macOS developer environment manager
+
+USAGE
+  dev [command] [targets...] [flags]
+
+  A target is a cluster name (20-systems), a cluster suffix (systems),
+  or an item name (rust). No target means every cluster, in order.
+
+COMMANDS
+  check [targets]        What is installed and what is not. Installs nothing.
+                         This is the default when no command is given.
+  plan [targets]         Full disclosure of what an install would change.
+                         No prompts, no writes.
+  install [targets]      Check, disclose, prompt per item, then install.
+  clean-install <target> Purge, then install.
+  status [--commands]    Overview + deferred/failed items and how to fix them.
+                         --commands prints copy-pasteable install commands.
+  purge <item>           Remove one item.
+  purge --cluster <name> Remove a whole cluster.
+  purge --all            Remove everything in the registry (typed confirm).
+  registry               Installed items, their roots, and disk usage.
+  doctor                 Correctness checks: PATH order, shadowing, Apple python.
+  clusters               List clusters and their items.
+  log [n]                Show the last log (default 200 lines).
+  help                   This.
+
+FLAGS
+  --yes                  Skip prompts. Will NOT auto-approve SYSTEM or APPS
+                         footprints; those always ask.
+  --dry-run              Go through every motion, execute nothing.
+  --verbose              Stream command output to the terminal as well as the log.
+  --no-color             Plain output.
+  --retry-deferred       Re-prompt items previously skipped with [s].
+                         Items marked [n]ever are never re-prompted.
+
+PER-ITEM PROMPT
+  [i]nstall   do it now
+  [s]kip      not now — recorded, not re-prompted until --retry-deferred
+  [n]ever     recorded permanently, drops out of the open-work count
+  [d]etails   method, check expression, manual instructions, alternatives
+  [q]uit      stop here
+
+FILES
+  ~/.zshenv      -> devenv/shell/env.zsh          environment only
+  ~/.zprofile    -> devenv/shell/path.zsh         PATH (after macOS path_helper)
+  ~/.zshrc       -> devenv/shell/interactive.zsh  hooks and aliases
+  state/         registry.tsv, deferred.tsv, logs/   (gitignored)
+
+Detach completely: remove the three marked blocks from your dotfiles and
+delete this directory. Everything else lives under ~/.local or one
+dot-directory per language manager.
+HELP
+}
+
+# ---------------------------------------------------------------------------
+# target resolution
+# ---------------------------------------------------------------------------
+resolve_targets() {
+  local t c found
+  if [ $# -eq 0 ]; then
+    for c in $CLUSTER_LIST; do items_in_cluster "$c"; done
+    return
+  fi
+  for t in "$@"; do
+    found=0
+    for c in $CLUSTER_LIST; do
+      if [ "$c" = "$t" ] || [ "${c#*-}" = "$t" ]; then
+        items_in_cluster "$c"; found=1; break
+      fi
+    done
+    [ $found = 1 ] && continue
+    if item_exists "$t"; then printf '%s\n' "$t"; found=1; fi
+    [ $found = 0 ] && err "unknown target: $t" >&2
+  done
+}
+
+state_symbol() {
+  case "$1" in
+    ok)       printf '%s ok%s' "$C_GN" "$C_R" ;;
+    missing)  printf '%s missing%s' "$C_YE" "$C_R" ;;
+    deferred) printf '%s deferred%s' "$C_D" "$C_R" ;;
+    never)    printf '%s never%s' "$C_D" "$C_R" ;;
+    failed)   printf '%s failed%s' "$C_RD" "$C_R" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# check
+# ---------------------------------------------------------------------------
+cmd_check() {
+  local names st n lastc="" c gaps=0
+  names=$(resolve_targets "$@")
+  [ -n "$names" ] || { warn "nothing to check"; return 1; }
+  for n in $names; do
+    c=$(item_cluster_of "$n")
+    [ "$c" != "$lastc" ] && { say "$c"; lastc="$c"; }
+    st=$(item_state "$n")
+    case "$st" in
+      ok) printf "    %s%-18s%s %-10s %s\n" "$C_GN" "$n" "$C_R" "$(item_version_str "$n")" "$(command -v "$n" 2>/dev/null || echo '')" ;;
+      *)  printf "    %-18s %s\n" "$n" "$(state_symbol "$st")"
+          case "$st" in missing|failed) gaps=$((gaps+1)) ;; esac ;;
+    esac
+    logline "    $n [$st]"
+  done
+  echo
+  if [ $gaps -gt 0 ]; then
+    inf "$gaps item(s) not installed. See: dev plan   or   dev install"
+    return 1
+  fi
+  ok "everything resolved"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# plan
+# ---------------------------------------------------------------------------
+cmd_plan() {
+  local names n st count=0
+  names=$(resolve_targets "$@")
+  for n in $names; do
+    st=$(item_state "$n")
+    [ "$st" = "ok" ] && continue
+    if [ "$st" = "never" ]; then continue; fi
+    if [ "$st" = "deferred" ] && [ "$OPT_RETRY_DEFERRED" != "1" ] && [ $# -eq 0 ]; then continue; fi
+    footprint_card "$n" "$st"
+    count=$((count+1))
+  done
+  echo
+  if [ $count = 0 ]; then ok "nothing to do"; else
+    inf "$count item(s) would be offered. Run: dev install"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# install
+# ---------------------------------------------------------------------------
+cmd_install() {
+  local explicit=0; [ $# -gt 0 ] && explicit=1
+  local names n st ans fn note lastc="" c
+  local n_done=0 n_skip=0 n_never=0 n_fail=0
+  names=$(resolve_targets "$@")
+  [ -n "$names" ] || { warn "nothing to install"; return 1; }
+
+  for n in $names; do
+    st=$(item_state "$n")
+    [ "$st" = "ok" ] && continue
+
+    # never: only when named explicitly
+    if [ "$st" = "never" ] && [ $explicit = 0 ]; then continue; fi
+    # deferred: only on --retry-deferred or when named explicitly
+    if [ "$st" = "deferred" ] && [ $explicit = 0 ] && [ "$OPT_RETRY_DEFERRED" != "1" ]; then continue; fi
+
+    c=$(item_cluster_of "$n")
+    [ "$c" != "$lastc" ] && { say "$c"; lastc="$c"; }
+
+    footprint_card "$n" "$st"
+    ans=$(prompt_item "$n")
+    case "$ans" in
+      q) inf "stopped"; break ;;
+      s) note=$(ask_note); deferred_add "$n" later "$note"
+         inf "skipped for now${note:+ — \"$note\"}"; n_skip=$((n_skip+1)); continue ;;
+      n) note=$(ask_note); deferred_add "$n" never "$note"
+         inf "marked never${note:+ — \"$note\"}"; n_never=$((n_never+1)); continue ;;
+    esac
+
+    deferred_del "$n"
+    fn=$(item_get "$n" install)
+    if [ "$OPT_DRYRUN" = "1" ]; then
+      inf "(dry-run) would call $fn"; continue
+    fi
+    if ! type "$fn" >/dev/null 2>&1; then
+      err "no install function '$fn' for $n"; n_fail=$((n_fail+1)); continue
+    fi
+
+    inf "installing…"
+    if "$fn"; then
+      # An install only counts if it passes its own check afterwards.
+      local chk; chk=$(item_get "$n" check)
+      if [ -z "$chk" ] || eval "$chk" >/dev/null 2>&1; then
+        registry_add "$n"; ok "$n installed ($(item_version_str "$n"))"; n_done=$((n_done+1))
+      else
+        err "$n reported success but its check still fails"; n_fail=$((n_fail+1))
+      fi
+    else
+      err "$n install failed — see: dev log"; n_fail=$((n_fail+1))
+    fi
+  done
+
+  say "Summary"
+  inf "installed $n_done · skipped $n_skip · never $n_never · failed $n_fail"
+  [ -n "$LOGFILE" ] && dim "log: $LOGFILE"
+  [ $n_skip -gt 0 ] && dim "skipped items will not be re-prompted; use --retry-deferred"
+  return 0
+}
+
+cmd_clean_install() {
+  [ $# -gt 0 ] || die "clean-install needs a target"
+  local names n
+  names=$(resolve_targets "$@")
+  for n in $names; do purge_one "$n"; done
+  cmd_install "$@"
+}
+
+# ---------------------------------------------------------------------------
+# purge
+# ---------------------------------------------------------------------------
+devenv_unwire_shell() {
+  local f
+  for f in .zshenv .zprofile .zshrc; do
+    [ -f "$HOME/$f" ] || continue
+    local t; t=$(mktemp)
+    awk '/# >>> devenv >>>/{s=1} !s{print} /# <<< devenv <<</{s=0}' "$HOME/$f" > "$t" && mv "$t" "$HOME/$f"
+    ok "unwired $f"
+  done
+}
+
+purge_one() {
+  local n="$1" p
+  p=$(tsv_field "$REGISTRY" "$n" 6)
+  [ -n "$p" ] || p=$(item_get "$n" purge)
+  [ -n "$p" ] || { warn "$n: no purge command known"; return 1; }
+  say "Purging $n"
+  inf "$p"
+  if [ "$OPT_DRYRUN" = "1" ]; then inf "(dry-run)"; return 0; fi
+  runsh "$p" || warn "purge command returned nonzero"
+  shellent_del_item "$n"
+  regen_shell
+  registry_del "$n"
+  ok "$n removed"
+}
+
+cmd_purge() {
+  [ $# -gt 0 ] || die "usage: dev purge <item> | --cluster <name> | --all"
+  case "$1" in
+    --all)
+      confirm_typed PURGE "This removes every item in the registry." || die "aborted"
+      awk -F'\t' 'NR>1{print $1}' "$REGISTRY" | while read -r n; do purge_one "$n"; done
+      devenv_unwire_shell ;;
+    --cluster)
+      shift; [ $# -gt 0 ] || die "--cluster needs a name"
+      local n
+      for n in $(resolve_targets "$1"); do
+        registry_has "$n" && purge_one "$n"
+      done ;;
+    *)
+      local t
+      for t in "$@"; do purge_one "$t"; done ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# registry
+# ---------------------------------------------------------------------------
+cmd_registry() {
+  say "Registry"
+  printf "  %-18s %-12s %-10s %-8s %s\n" "NAME" "CLUSTER" "METHOD" "SIZE" "ROOTS"
+  awk -F'\t' 'NR>1{print $1"|"$2"|"$3"|"$5}' "$REGISTRY" | while IFS='|' read -r n c m roots; do
+    local sizes; sizes=$(human_size $(printf '%s' "$roots" | tr ',' ' '))
+    printf "  %-18s %-12s %-10s %-8s %s\n" "$n" "$c" "$m" "$sizes" "$roots"
+  done
+  echo
+  inf "~/.local total: $(du -sh "$LOCAL_PREFIX" 2>/dev/null | cut -f1)"
+  inf "file: $REGISTRY"
+}
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+cmd_status() {
+  local commands=0
+  [ "${1:-}" = "--commands" ] && commands=1
+
+  say "devenv $VERSION"
+  inf "root   : $DEV_ROOT"
+  inf "git    : $(cd "$DEV_ROOT" 2>/dev/null && git rev-parse --short HEAD 2>/dev/null || echo 'not a repo')"
+  inf "system : $(sw_vers -productVersion 2>/dev/null || uname -sr) · $(uname -m) · ${SHELL:-?}"
+  local last; last=$(ls -1t "$DEV_LOGS"/*.log 2>/dev/null | grep -v latest | head -1)
+  inf "lastrun: ${last:+$(basename "$last")}"
+
+  say "Clusters"
+  printf "  %-16s %5s %8s %9s %7s\n" "CLUSTER" "OK" "MISSING" "DEFERRED" "FAILED"
+  local c n st o m d f to=0 tm=0 td=0 tf=0
+  for c in $CLUSTER_LIST; do
+    o=0; m=0; d=0; f=0
+    for n in $(items_in_cluster "$c"); do
+      st=$(item_state "$n")
+      case "$st" in
+        ok) o=$((o+1)) ;; missing) m=$((m+1)) ;;
+        deferred|never) d=$((d+1)) ;; failed) f=$((f+1)) ;;
+      esac
+    done
+    to=$((to+o)); tm=$((tm+m)); td=$((td+d)); tf=$((tf+f))
+    printf "  %-16s %5s %8s %9s %7s\n" "$c" "$([ $o = 0 ] && echo - || echo $o)" \
+      "$([ $m = 0 ] && echo - || echo $m)" "$([ $d = 0 ] && echo - || echo $d)" \
+      "$([ $f = 0 ] && echo - || echo $f)"
+  done
+  printf "  %-16s %5s %8s %9s %7s\n" "$(rule - | cut -c1-16)" "-----" "--------" "---------" "-------"
+  printf "  %-16s %5s %8s %9s %7s\n" "TOTAL" "$to" "$tm" "$td" "$tf"
+
+  # deferred / never
+  local nd; nd=$(awk -F'\t' 'NR>1 && $3=="later"' "$DEFERRED" | wc -l | tr -d ' ')
+  local nn; nn=$(awk -F'\t' 'NR>1 && $3=="never"' "$DEFERRED" | wc -l | tr -d ' ')
+  if [ "${nd:-0}" -gt 0 ]; then
+    say "Deferred ($nd) — skipped on request, will not re-prompt"
+    awk -F'\t' 'NR>1 && $3=="later"{printf "    %-18s %-14s %s  %s\n", $1, $2, $4, ($6==""?"(no note)":"\""$6"\"")}' "$DEFERRED"
+  fi
+  if [ "${nn:-0}" -gt 0 ]; then
+    say "Never ($nn) — excluded from the open-work count"
+    awk -F'\t' 'NR>1 && $3=="never"{printf "    %-18s %-14s %s  %s\n", $1, $2, $4, ($6==""?"(no note)":"\""$6"\"")}' "$DEFERRED"
+  fi
+
+  local failed=""
+  for n in $(all_items); do [ "$(item_state "$n")" = "failed" ] && failed="$failed $n"; done
+  if [ -n "$failed" ]; then
+    say "Failed — retried automatically on the next install"
+    for n in $failed; do printf "    %-18s %s\n" "$n" "$(item_cluster_of "$n")"; done
+  fi
+
+  if [ $commands = 1 ]; then status_commands; else
+    echo
+    dim "dev status --commands      copy-pasteable install commands for what's missing"
+    dim "dev install --retry-deferred   re-prompt items skipped with [s]"
+  fi
+}
+
+status_commands() {
+  local n st printed=0
+  say "Install commands for everything not installed"
+  for section in later never missing; do
+    for n in $(all_items); do
+      st=$(item_state "$n")
+      case "$section:$st" in
+        later:deferred|never:never|missing:missing|missing:failed) : ;;
+        *) continue ;;
+      esac
+      printed=1
+      echo
+      printf "# %s%s%s  (%s)\n" "$C_B" "$n" "$C_R" "$st"
+      printf "#   %s\n" "$(item_get "$n" desc)"
+      local roots; roots=$(item_roots "$n")
+      [ -n "$roots" ] && printf "#   lands in : %s\n" "$roots"
+      local note; note=$(tsv_field "$DEFERRED" "$n" 6)
+      [ -n "$note" ] && printf "#   your note: \"%s\"\n" "$note"
+      printf "#   via dev  : dev install %s\n" "$n"
+      local man; man=$(item_get "$n" manual)
+      if [ -n "$man" ]; then
+        printf "#   manually :\n"
+        printf '%s\n' "$man" | sed 's/^/#       /'
+      fi
+      local alt; alt=$(item_get "$n" alt)
+      [ -n "$alt" ] && { printf "#   alt      :\n"; printf '%s\n' "$alt" | sed 's/^/#       /'; }
+    done
+  done
+  [ $printed = 0 ] && ok "nothing outstanding"
+  echo
+}
+
+# ---------------------------------------------------------------------------
+# doctor — correctness, not presence
+# ---------------------------------------------------------------------------
+cmd_doctor() {
+  say "PATH order"
+  local i=1
+  printf '%s' "$PATH" | tr ':' '\n' | while read -r p; do
+    printf "  %2d  %s\n" "$i" "$p"; i=$((i+1))
+  done | head -12
+
+  say "Shadowing"
+  case ":$PATH:" in
+    *":$LOCAL_BIN:"*)
+      local before after
+      before=$(printf '%s' "$PATH" | tr ':' '\n' | grep -n "^$LOCAL_BIN$" | head -1 | cut -d: -f1)
+      after=$(printf '%s' "$PATH" | tr ':' '\n' | grep -n '^/usr/bin$' | head -1 | cut -d: -f1)
+      if [ -n "$before" ] && [ -n "$after" ] && [ "$before" -lt "$after" ]; then
+        ok "~/.local/bin precedes /usr/bin"
+      else
+        err "/usr/bin precedes ~/.local/bin — macOS path_helper has won."
+        err "Ensure ~/.zprofile sources devenv/shell/path.zsh (it runs after /etc/zprofile)."
+      fi ;;
+    *) err "~/.local/bin is not on PATH at all" ;;
+  esac
+
+  if [ "$(command -v python3 2>/dev/null)" = "/usr/bin/python3" ]; then
+    warn "python3 resolves to Apple's system Python. Use 'uv run', never bare python3."
+  else
+    ok "python3: $(command -v python3 2>/dev/null || echo 'none — correct, use uv run')"
+  fi
+
+  if have brew; then
+    warn "Homebrew is installed at $(brew --prefix 2>/dev/null) and may shadow these tools."
+  else ok "no Homebrew"; fi
+
+  if have npm && npm ls -g --depth=0 @anthropic-ai/claude-code >/dev/null 2>&1; then
+    warn "npm copy of claude-code will shadow the native binary"
+    inf "npm uninstall -g @anthropic-ai/claude-code && hash -r && claude doctor"
+  fi
+
+  say "Generated shell files"
+  local f
+  for f in env path interactive; do
+    if [ -f "$DEV_SHELL/$f.zsh" ]; then ok "$f.zsh ($(wc -l < "$DEV_SHELL/$f.zsh" | tr -d ' ') lines)"
+    else warn "$f.zsh missing — run: dev install shellwiring"; fi
+  done
+  for f in zshenv zprofile zshrc; do
+    grep -q '>>> devenv >>>' "$HOME/.$f" 2>/dev/null && ok ".$f wired" || warn ".$f not wired"
+  done
+
+  say "GUI applications"
+  dim "Apps launched from Finder/Dock inherit PATH from launchd, not from zsh."
+  dim "Launch editors from a terminal, or set their integrated shell to a login shell."
+}
+
+cmd_clusters() {
+  local c n
+  for c in $CLUSTER_LIST; do
+    say "$c"
+    for n in $(items_in_cluster "$c"); do
+      printf "    %-18s %s\n" "$n" "$(item_get "$n" desc)"
+    done
+  done
+}
+
+cmd_log() {
+  local n="${1:-200}" f
+  f=$(ls -1t "$DEV_LOGS"/*.log 2>/dev/null | grep -v latest | head -1)
+  [ -n "$f" ] || { warn "no logs yet"; return 1; }
+  inf "$f"
+  tail -n "$n" "$f"
+}
+
+# ---------------------------------------------------------------------------
+# argv
+# ---------------------------------------------------------------------------
+CMD=""
+ARGS=""
+for a in "$@"; do
+  case "$a" in
+    --yes|-y)          OPT_YES=1 ;;
+    --dry-run)         OPT_DRYRUN=1 ;;
+    --verbose|-v)      OPT_VERBOSE=1 ;;
+    --no-color)        no_color ;;
+    --retry-deferred)  OPT_RETRY_DEFERRED=1 ;;
+    --help|-h)         CMD=help ;;
+    --version)         echo "dev $VERSION"; exit 0 ;;
+    -*)                if [ "$CMD" = "status" ] && [ "$a" = "--commands" ]; then ARGS="$ARGS $a";
+                       else die "unknown flag: $a (try: dev help)"; fi ;;
+    *)                 if [ -z "$CMD" ]; then CMD="$a"; else ARGS="$ARGS $a"; fi ;;
+  esac
+done
+[ -z "$CMD" ] && CMD=check
+
+# shellcheck disable=SC2086
+set -- $ARGS
+
+case "$CMD" in
+  help)          cmd_help ;;
+  clusters)      cmd_clusters ;;
+  registry)      cmd_registry ;;
+  status)        log_open status; cmd_status "$@" ;;
+  check)         log_open check;  cmd_check "$@" ;;
+  plan)          log_open plan;   cmd_plan "$@" ;;
+  install)       log_open install; cmd_install "$@" ;;
+  clean-install) log_open clean-install; cmd_clean_install "$@" ;;
+  purge)         log_open purge;  cmd_purge "$@" ;;
+  doctor)        log_open doctor; cmd_doctor ;;
+  log)           cmd_log "$@" ;;
+  *)             err "unknown command: $CMD"; echo; cmd_help; exit 1 ;;
+esac
