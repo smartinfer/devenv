@@ -13,6 +13,14 @@ Built for a MacBook Pro M5 Max / 128 GB, but nothing here is specific to that ma
 
 Package managers are convenient until you have seven language toolchains, and then they become the problem. Homebrew wants to own your Python, your Node, your Rust, and your JVM — but each of those languages already has a version manager that does the job better, and mixing the two produces shadowed binaries and version drift that take an afternoon to diagnose.
 
+### Why Anjan created this
+
+I am a polyglot developer working across systems, scripting, functional, logic, JVM, and formal-methods ecosystems. A normal workstation therefore carries native compilers, language runtimes, theorem provers, model checkers, and AI agents at the same time. At that scale, installing software is the easy part; keeping ownership clear is the hard part.
+
+Every ecosystem brings some combination of a compiler, runtime, version manager, package manager, cache, language server, environment variables, and shell integration. If several general-purpose and language-native managers own overlapping pieces, upgrades create duplicate runtimes, PATH shadowing, incompatible libraries, and state that is difficult to locate or remove.
+
+`devenv` is the operating policy for that workstation. It assigns each toolchain a single owner, makes PATH precedence explicit, records where every installation writes, and requires a removal path before a tool is admitted. The goal is not to collect languages; it is to let many languages coexist without turning the machine into an archaeological site.
+
 This repository takes the other approach:
 
 1. **No Homebrew.** No sudo, except where Apple requires it.
@@ -22,6 +30,38 @@ This repository takes the other approach:
 5. **Libraries are never global.** Only runtimes, compilers, and CLIs.
 
 The result: `dev purge --all` genuinely returns the machine to where it started, and `dev registry` can always tell you what is on disk and how much space it takes.
+
+### Why use this instead of Homebrew?
+
+Homebrew is excellent when the goal is to install a large catalog of software with one command. `devenv` solves a different problem: keeping a long-lived development workstation understandable. It is a small policy and audit layer over the installers each ecosystem already maintains.
+
+| Concern | `devenv` | General-purpose package manager |
+|---|---|---|
+| Before installation | Shows paths, network sources, shell changes, apps, system files, receipts, and purge command | Usually shows a package name and dependency plan |
+| Runtime ownership | Python belongs to uv, Rust to rustup, Node/Go/JVM to mise, and so on | May install parallel runtimes into a shared prefix |
+| Filesystem layout | Tool-specific directories, primarily under `$HOME` | Shared manager-controlled prefix and dependency tree |
+| Shell integration | Generates auditable zsh files with macOS startup order handled explicitly | Adds a shared prefix or manager hook to PATH |
+| Removal | Records each tool's roots and exact purge operation | Removes managed packages; user state and native-manager files may remain |
+| Partial adoption | Install, defer, or permanently decline individual tools | Packages are installed when requested; personal decisions live elsewhere |
+| Failure visibility | Persistent logs, status, doctor, registry, and copyable manual alternatives | Manager-specific diagnostics and logs |
+| Safety checks | Hermetic tests enforce disclosure, scoped purges, safe downloads, and Bash 3.2 compatibility | Package recipes are maintained and tested by the manager's ecosystem |
+
+The practical advantages are:
+
+- **No competing owners.** A runtime has one source of truth, so upgrades do not create a second Python, Node, Rust, or JVM earlier on PATH.
+- **Review before mutation.** `dev plan` is read-only and exposes the complete expected footprint before an installer runs.
+- **Reversible by construction.** Adding a tool requires documenting its storage and purge behavior, not merely its install command.
+- **macOS-aware shell behavior.** PATH is restored after `path_helper`, while environment variables remain available to non-interactive shells and coding agents.
+- **A fresh Mac inherits decisions.** Cluster order, pinned choices, deferrals, alternatives, and operational notes live in reviewable source control.
+- **No lock-in to `dev`.** `dev status --commands` always gives the native/manual route, and installed tools continue working without this repository.
+
+### Who should—and should not—use it
+
+Use `devenv` if you want this particular Apple-silicon toolchain, prefer native language managers, care about exact install footprints, and are willing to review shell scripts when adding software. It is especially useful for machines that mix several language ecosystems, formal tools, AI agents, and local ML.
+
+Use Homebrew or MacPorts if broad package availability and low-maintenance installation matter more than per-tool ownership and purge accounting. Use Nix if declarative, reproducible system graphs and isolated stores are the primary goal and its additional model is acceptable. A simple dotfiles repository is enough if you only need a few PATH entries and do not need installation state, disclosure, or removal tracking.
+
+`devenv` is deliberately curated rather than comprehensive. It does not resolve arbitrary native-library dependency graphs, and every new item carries a maintenance cost. That smaller scope is the mechanism that keeps the environment legible; it is also the main tradeoff.
 
 ---
 
