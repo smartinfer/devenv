@@ -9,3 +9,12 @@ shell/*.zsh
 !.gitkeep
 
 .DS_Store
+
+# Secrets and private audit material — keep this protection in-repo so it
+# travels to collaborators, CI, and fresh clones.
+*.key
+.env
+.env.*
+*.pem
+*.p12
+AUDIT-keys.md
