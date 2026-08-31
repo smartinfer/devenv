@@ -1,0 +1,435 @@
+#!/usr/bin/env bash
+#
+# key — API key manager for devenv
+# Anjan Goswami / SmartInfer, Inc.
+#
+# Keys live as one file per provider in ~/.config/secrets/<provider>.key
+# (dir 700, files 600), outside any git repo. A generated loader exports
+# them as environment variables, which is what every SDK and agent reads.
+#
+# Nothing is ever saved without being tested against the provider first,
+# and a rotation never discards a working key for a broken one.
+#
+# Bash 3.2 compatible (macOS ships bash 3.2).
+#
+set -uo pipefail
+
+SECRETS_DIR="${DEVENV_SECRETS_DIR:-$HOME/.config/secrets}"
+LOADER="${DEVENV_LOADER:-$HOME/.zsh_secrets}"
+VERSION="1.0.0"
+
+C_B=$'\033[1m'; C_D=$'\033[2m'; C_R=$'\033[0m'
+C_CY=$'\033[1;36m'; C_YE=$'\033[1;33m'; C_RD=$'\033[1;31m'; C_GN=$'\033[1;32m'
+[ -t 1 ] || { C_B=""; C_D=""; C_R=""; C_CY=""; C_YE=""; C_RD=""; C_GN=""; }
+
+say()  { printf "\n%s==> %s%s\n" "$C_CY" "$*" "$C_R"; }
+inf()  { printf "    %s\n" "$*"; }
+ok()   { printf "    %s✓%s %s\n" "$C_GN" "$C_R" "$*"; }
+warn() { printf "%s  ! %s%s\n" "$C_YE" "$*" "$C_R"; }
+err()  { printf "%s  x %s%s\n" "$C_RD" "$*" "$C_R"; }
+die()  { err "$*"; exit 1; }
+
+# ---------------------------------------------------------------------------
+# provider table
+#   name | ENV_VAR | prefix | auth | test_url | console_url | label
+#
+# auth: bearer    Authorization: Bearer <key>
+#       xapikey   x-api-key: <key>   (+ anthropic-version)
+#       query     ?key=<key>
+# prefix: expected leading characters, "-" if the provider has no convention
+# ---------------------------------------------------------------------------
+PROVIDERS='
+anthropic|ANTHROPIC_API_KEY|sk-ant-|xapikey|https://api.anthropic.com/v1/models|https://console.anthropic.com/settings/keys|Anthropic (Claude)
+openai|OPENAI_API_KEY|sk-|bearer|https://api.openai.com/v1/models|https://platform.openai.com/api-keys|OpenAI (GPT)
+gemini|GEMINI_API_KEY|-|query|https://generativelanguage.googleapis.com/v1beta/models|https://aistudio.google.com/apikey|Google (Gemini)
+together|TOGETHER_API_KEY|-|bearer|https://api.together.xyz/v1/models|https://api.together.ai/settings/api-keys|Together AI (open models)
+deepseek|DEEPSEEK_API_KEY|sk-|bearer|https://api.deepseek.com/models|https://platform.deepseek.com/api_keys|DeepSeek
+moonshot|MOONSHOT_API_KEY|sk-|bearer|https://api.moonshot.cn/v1/models|https://platform.moonshot.cn/console/api-keys|Moonshot (Kimi)
+dashscope|DASHSCOPE_API_KEY|sk-|bearer|https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models|https://dashscope.console.aliyun.com|Alibaba DashScope (Qwen)
+zhipu|ZHIPU_API_KEY|-|bearer|https://open.bigmodel.cn/api/paas/v4/models|https://open.bigmodel.cn/usercenter/apikeys|Zhipu (GLM)
+groq|GROQ_API_KEY|gsk_|bearer|https://api.groq.com/openai/v1/models|https://console.groq.com/keys|Groq
+mistral|MISTRAL_API_KEY|-|bearer|https://api.mistral.ai/v1/models|https://console.mistral.ai/api-keys|Mistral
+fireworks|FIREWORKS_API_KEY|fw_|bearer|https://api.fireworks.ai/inference/v1/models|https://fireworks.ai/account/api-keys|Fireworks
+openrouter|OPENROUTER_API_KEY|sk-or-|bearer|https://openrouter.ai/api/v1/auth/key|https://openrouter.ai/keys|OpenRouter (many models)
+xai|XAI_API_KEY|xai-|bearer|https://api.x.ai/v1/models|https://console.x.ai|xAI (Grok)
+cohere|COHERE_API_KEY|-|bearer|https://api.cohere.com/v1/models|https://dashboard.cohere.com/api-keys|Cohere
+huggingface|HF_TOKEN|hf_|bearer|https://huggingface.co/api/whoami-v2|https://huggingface.co/settings/tokens|Hugging Face (model downloads)
+'
+
+p_field() {  # p_field <provider> <1-based field>
+  printf '%s\n' "$PROVIDERS" | awk -F'|' -v n="$1" -v f="$2" '$1==n {print $f; exit}'
+}
+p_known()   { [ -n "$(p_field "$1" 1)" ]; }
+p_var()     { local v; v=$(p_field "$1" 2); [ -n "$v" ] && printf '%s' "$v" || printf '%s_API_KEY' "$(upper "$1")"; }
+p_prefix()  { p_field "$1" 3; }
+p_auth()    { p_field "$1" 4; }
+p_test()    { p_field "$1" 5; }
+p_console() { p_field "$1" 6; }
+p_label()   { local l; l=$(p_field "$1" 7); [ -n "$l" ] && printf '%s' "$l" || printf '%s' "$1"; }
+p_all()     { printf '%s\n' "$PROVIDERS" | awk -F'|' 'NF>1 {print $1}'; }
+
+upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9\n' '_'; }
+
+keyfile() { printf '%s/%s.key' "$SECRETS_DIR" "$1"; }
+has_key() { [ -s "$(keyfile "$1")" ]; }
+read_key() { [ -f "$(keyfile "$1")" ] && tr -d '\r\n' < "$(keyfile "$1")"; }
+
+mask() {
+  local k="$1" n=${#1}
+  if [ "$n" -le 12 ]; then printf '%s' "********"
+  else printf '%s…%s' "$(printf '%s' "$k" | cut -c1-8)" "$(printf '%s' "$k" | tail -c 4)"; fi
+}
+
+ensure_dir() { mkdir -p "$SECRETS_DIR" && chmod 700 "$SECRETS_DIR"; }
+
+# ---------------------------------------------------------------------------
+# test a key against the provider — this is the whole point of the script
+# ---------------------------------------------------------------------------
+test_key() {  # test_key <provider> <key> ; echoes HTTP code, returns 0 on 2xx
+  local prov="$1" k="$2" url auth code
+  url=$(p_test "$prov"); auth=$(p_auth "$prov")
+  if [ -z "$url" ]; then printf 'SKIP'; return 0; fi
+  case "$auth" in
+    xapikey) code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url" \
+               -H "x-api-key: $k" -H "anthropic-version: 2023-06-01" 2>/dev/null) ;;
+    query)   code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url?key=$k" 2>/dev/null) ;;
+    *)       code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url" \
+               -H "Authorization: Bearer $k" 2>/dev/null) ;;
+  esac
+  printf '%s' "${code:-000}"
+  case "${code:-000}" in 2*) return 0 ;; *) return 1 ;; esac
+}
+
+explain_code() {
+  case "$1" in
+    2*)  printf 'valid' ;;
+    401|403) printf 'rejected — key invalid, revoked, or lacking permission' ;;
+    404) printf 'endpoint not found — provider may have changed its API' ;;
+    429) printf 'rate limited — the key is probably valid, retry later' ;;
+    000) printf 'no response — check your network' ;;
+    *)   printf 'unexpected status' ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# loader generation
+# ---------------------------------------------------------------------------
+write_loader() {
+  cat > "$LOADER" <<EOF
+# GENERATED by \`key\`. Do not edit.
+# Sourced from devenv/shell/env.zsh via ~/.zshenv, so non-interactive shells
+# — which is what coding agents spawn — get these too.
+#
+# One file per provider in $SECRETS_DIR. Add or remove a key with
+# \`key add <provider>\` / \`key rm <provider>\`; this file regenerates.
+
+_sd="$SECRETS_DIR"
+if [ -d "\$_sd" ]; then
+  for _f in "\$_sd"/*.key(N); do
+    _n="\${_f:t:r}"
+    case "\$_n" in
+$(p_all | while read -r p; do printf '      %s) _v=%s ;;\n' "$p" "$(p_var "$p")"; done)
+      *) _v="\${(U)_n}_API_KEY" ;;
+    esac
+    export "\$_v"="\$(< "\$_f")"
+  done
+  unset _f _n _v
+fi
+unset _sd
+EOF
+  chmod 600 "$LOADER"
+}
+
+# ---------------------------------------------------------------------------
+# commands
+# ---------------------------------------------------------------------------
+cmd_help() {
+cat <<'HELP'
+key — API key manager
+
+USAGE
+  key <command> [provider]
+
+COMMANDS
+  list                 Which providers have a key, masked, with age.
+  providers            Every provider this script knows, and its console URL.
+  add <provider>       Prompt for a key, test it, then save it.
+  test <provider>      Test a stored key against the provider.
+  test --all           Test every stored key.
+  rotate <provider>    Prompt for a new key; only replaces the old one if the
+                       new one passes. The old key is kept as a .bak.
+  show <provider>      Print the raw key to stdout (for piping; never logs).
+  rm <provider>        Delete a key.
+  path                 Where keys and the loader live.
+  env                  Show which variables are currently exported.
+  help
+
+ADDING AN UNLISTED PROVIDER
+  key add myprovider --var MYPROVIDER_API_KEY --test-url https://api.x/v1/models
+  Omit --test-url to save without testing (you will be warned).
+
+NOTES
+  Keys are read from stdin, never from argv, so they stay out of shell history
+  and out of the process table. Files are 600 inside a 700 directory.
+
+  Already-running processes keep the environment they started with. After
+  adding or rotating, restart agents and long-lived shells.
+
+  Claude Code and Codex cache their own credentials after /login; rotating
+  ANTHROPIC_API_KEY does not affect a subscription session.
+HELP
+}
+
+cmd_providers() {
+  say "Known providers"
+  printf "  %-14s %-24s %s\n" "NAME" "ENV VAR" "CONSOLE"
+  p_all | while read -r p; do
+    printf "  %-14s %-24s %s\n" "$p" "$(p_var "$p")" "$(p_console "$p")"
+  done
+  echo
+  inf "$(p_all | wc -l | tr -d ' ') providers. Unlisted ones: key add <name> --var VAR --test-url URL"
+}
+
+cmd_list() {
+  ensure_dir
+  say "Stored keys"
+  local found=0 f prov k age
+  for f in "$SECRETS_DIR"/*.key; do
+    [ -f "$f" ] || continue
+    found=1
+    prov=$(basename "$f" .key)
+    k=$(read_key "$prov")
+    age=$(( ( $(date +%s) - $(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null) ) / 86400 ))
+    printf "  %-14s %-24s %-16s %s\n" \
+      "$prov" "$(p_var "$prov")" "$(mask "$k")" "${age}d old"
+  done
+  [ $found = 0 ] && inf "none yet — try: key add anthropic"
+  echo
+  local missing=""
+  for prov in anthropic openai gemini; do has_key "$prov" || missing="$missing $prov"; done
+  [ -n "$missing" ] && inf "no key for:$missing"
+  inf "dir: $SECRETS_DIR  ·  loader: $LOADER"
+}
+
+prompt_key() {  # reads a secret from the tty without echoing
+  local prov="$1" k
+  printf "  paste key for %s (input hidden, enter to cancel)\n  > " "$(p_label "$prov")" >&2
+  if [ -t 0 ]; then IFS= read -rs k </dev/tty || k=""; else IFS= read -r k || k=""; fi
+  printf "\n" >&2
+  printf '%s' "$k" | tr -d '\r\n'
+}
+
+cmd_add() {
+  local prov="${1:-}"; shift 2>/dev/null || true
+  [ -n "$prov" ] || die "usage: key add <provider>"
+  ensure_dir
+
+  local custom_var="" custom_url=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --var)      custom_var="${2:-}"; shift 2 ;;
+      --test-url) custom_url="${2:-}"; shift 2 ;;
+      *) die "unknown flag: $1" ;;
+    esac
+  done
+
+  if ! p_known "$prov" && [ -z "$custom_var" ]; then
+    warn "unknown provider '$prov'"
+    inf "it will export $(upper "$prov")_API_KEY and will not be tested"
+    inf "to be explicit: key add $prov --var VAR --test-url URL"
+  fi
+  [ -n "$custom_var" ] && PROVIDERS="$PROVIDERS
+$prov|$custom_var|-|bearer|$custom_url||$prov (custom)"
+
+  if has_key "$prov"; then
+    warn "$prov already has a key — use 'key rotate $prov' to replace it safely"
+    return 1
+  fi
+
+  say "Add key: $(p_label "$prov")"
+  local console; console=$(p_console "$prov")
+  [ -n "$console" ] && inf "get one at: $console"
+
+  local k; k=$(prompt_key "$prov")
+  [ -n "$k" ] || { warn "cancelled"; return 1; }
+
+  local pre; pre=$(p_prefix "$prov")
+  if [ -n "$pre" ] && [ "$pre" != "-" ]; then
+    case "$k" in "$pre"*) : ;; *) warn "expected a key starting with '$pre' — continuing anyway" ;; esac
+  fi
+
+  inf "testing…"
+  local code; code=$(test_key "$prov" "$k")
+  if [ "$code" = "SKIP" ]; then
+    warn "no test endpoint for this provider — saving untested"
+  elif ! case "$code" in 2*) true ;; *) false ;; esac; then
+    err "HTTP $code — $(explain_code "$code")"
+    if [ "$code" = "429" ]; then
+      warn "rate limited, so the key is likely fine; saving"
+    else
+      err "not saving. Nothing was written."
+      return 1
+    fi
+  else
+    ok "HTTP $code — key is valid"
+  fi
+
+  printf '%s' "$k" > "$(keyfile "$prov")"
+  chmod 600 "$(keyfile "$prov")"
+  write_loader
+  ok "saved $(keyfile "$prov")"
+  inf "exported as $(p_var "$prov") — run: exec zsh -l"
+}
+
+cmd_test() {
+  local prov="${1:-}"
+  ensure_dir
+  if [ "$prov" = "--all" ] || [ -z "$prov" ]; then
+    say "Testing every stored key"
+    local any=0 f p k code
+    for f in "$SECRETS_DIR"/*.key; do
+      [ -f "$f" ] || continue
+      any=1; p=$(basename "$f" .key); k=$(read_key "$p")
+      code=$(test_key "$p" "$k")
+      if [ "$code" = "SKIP" ]; then printf "    %-14s %s(no test endpoint)%s\n" "$p" "$C_D" "$C_R"
+      elif case "$code" in 2*) true ;; *) false ;; esac; then ok "$(printf '%-12s HTTP %s' "$p" "$code")"
+      else err "$(printf '%-12s HTTP %s — %s' "$p" "$code" "$(explain_code "$code")")"; fi
+    done
+    [ $any = 0 ] && inf "no keys stored"
+    return 0
+  fi
+  has_key "$prov" || die "no key stored for '$prov'"
+  say "Testing $(p_label "$prov")"
+  local code; code=$(test_key "$prov" "$(read_key "$prov")")
+  if [ "$code" = "SKIP" ]; then warn "no test endpoint for this provider"; return 0; fi
+  if case "$code" in 2*) true ;; *) false ;; esac; then ok "HTTP $code — valid"
+  else err "HTTP $code — $(explain_code "$code")"; return 1; fi
+}
+
+cmd_rotate() {
+  local prov="${1:-}"
+  [ -n "$prov" ] || die "usage: key rotate <provider>"
+  has_key "$prov" || die "no existing key for '$prov' — use: key add $prov"
+  ensure_dir
+
+  say "Rotate key: $(p_label "$prov")"
+  inf "current: $(mask "$(read_key "$prov")")"
+  local console; console=$(p_console "$prov")
+  [ -n "$console" ] && inf "create the new key at: $console"
+
+  local k; k=$(prompt_key "$prov")
+  [ -n "$k" ] || { warn "cancelled — old key untouched"; return 1; }
+
+  if [ "$k" = "$(read_key "$prov")" ]; then
+    warn "that is the same key you already have — nothing to do"
+    return 1
+  fi
+
+  inf "testing the new key before touching the old one…"
+  local code; code=$(test_key "$prov" "$k")
+  if [ "$code" != "SKIP" ] && ! case "$code" in 2*) true ;; *) false ;; esac; then
+    err "HTTP $code — $(explain_code "$code")"
+    err "refusing to rotate. Your working key is untouched."
+    return 1
+  fi
+  ok "new key valid (HTTP $code)"
+
+  local bak; bak="$(keyfile "$prov").$(date +%Y%m%d%H%M%S).bak"
+  cp "$(keyfile "$prov")" "$bak" && chmod 600 "$bak"
+  printf '%s' "$k" > "$(keyfile "$prov")"
+  chmod 600 "$(keyfile "$prov")"
+  write_loader
+  ok "rotated. Old key kept at $(basename "$bak")"
+  echo
+  warn "now, in this order:"
+  inf "  1. exec zsh -l                 reload your shell"
+  inf "  2. restart agents and servers  they hold the old value"
+  inf "  3. revoke the old key at $console"
+  inf "  4. rm '$bak'"
+}
+
+cmd_rm() {
+  local prov="${1:-}"
+  [ -n "$prov" ] || die "usage: key rm <provider>"
+  has_key "$prov" || die "no key stored for '$prov'"
+  printf "Delete the %s key (%s)? [y/N] " "$prov" "$(mask "$(read_key "$prov")")"
+  local a; if [ -t 0 ]; then read -r a </dev/tty || a=n; else read -r a || a=n; fi
+  case "$a" in y|Y) : ;; *) inf "cancelled"; return 1 ;; esac
+  rm -f "$(keyfile "$prov")"
+  write_loader
+  ok "removed. $(p_var "$prov") disappears after: exec zsh -l"
+  local console; console=$(p_console "$prov")
+  [ -n "$console" ] && inf "revoke it upstream too: $console"
+}
+
+cmd_show() {
+  local prov="${1:-}"
+  [ -n "$prov" ] || die "usage: key show <provider>"
+  has_key "$prov" || die "no key stored for '$prov'"
+  read_key "$prov"
+}
+
+cmd_path() {
+  say "Locations"
+  inf "keys   : $SECRETS_DIR/<provider>.key   (dir 700, files 600)"
+  inf "loader : $LOADER"
+  inf "sourced: ~/.zshenv -> devenv/shell/env.zsh -> $LOADER"
+  echo
+  inf "Tell agents nothing. They read the environment variables."
+}
+
+cmd_env() {
+  say "Exported in this shell"
+  local p v
+  for p in $(p_all); do
+    v=$(p_var "$p")
+    if [ -n "$(eval "printf '%s' \"\${$v:-}\"")" ]; then
+      ok "$(printf '%-24s %s' "$v" "$(mask "$(eval "printf '%s' \"\$$v\"")")")"
+    fi
+  done
+  echo
+  inf "If a key you just added is missing here, run: exec zsh -l"
+}
+
+cmd_doctor() {
+  say "Checks"
+  if [ -d "$SECRETS_DIR" ]; then
+    local m; m=$(stat -c '%a' "$SECRETS_DIR" 2>/dev/null || stat -f '%Lp' "$SECRETS_DIR" 2>/dev/null)
+    [ "$m" = "700" ] && ok "secrets dir is 700" || err "secrets dir is $m, should be 700: chmod 700 $SECRETS_DIR"
+  else
+    warn "no secrets dir yet"
+  fi
+  local f bad=0
+  for f in "$SECRETS_DIR"/*.key; do
+    [ -f "$f" ] || continue
+    local m; m=$(stat -c '%a' "$f" 2>/dev/null || stat -f '%Lp' "$f" 2>/dev/null)
+    [ "$m" = "600" ] || { err "$(basename "$f") is $m, should be 600"; bad=1; }
+    case "$(tail -c1 "$f" | od -An -c | tr -d ' ')" in
+      *'\n'*) warn "$(basename "$f") ends with a newline — usually harmless, stripped on load" ;;
+    esac
+  done
+  [ $bad = 0 ] && ok "key file permissions are correct"
+  [ -f "$LOADER" ] && ok "loader present" || warn "loader missing — run: key add <provider>"
+  case "$SECRETS_DIR" in
+    "$HOME"/.config/*) ok "secrets live outside any git repo" ;;
+    *) warn "secrets dir is in an unusual place — make sure it is not inside a repo" ;;
+  esac
+  local bakn; bakn=$(ls -1 "$SECRETS_DIR"/*.bak 2>/dev/null | wc -l | tr -d ' ')
+  [ "${bakn:-0}" -gt 0 ] && warn "$bakn old key backup(s) present — delete once rotation is confirmed"
+}
+
+case "${1:-list}" in
+  help|--help|-h) cmd_help ;;
+  --version)      echo "key $VERSION" ;;
+  providers)      cmd_providers ;;
+  list|ls)        cmd_list ;;
+  add)            shift; cmd_add "$@" ;;
+  test)           shift; cmd_test "$@" ;;
+  rotate)         shift; cmd_rotate "$@" ;;
+  rm|remove)      shift; cmd_rm "$@" ;;
+  show)           shift; cmd_show "$@" ;;
+  path)           cmd_path ;;
+  env)            cmd_env ;;
+  doctor)         cmd_doctor ;;
+  *)              err "unknown command: $1"; echo; cmd_help; exit 1 ;;
+esac

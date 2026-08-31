@@ -159,9 +159,11 @@ Numbered so dependency order is visible in the filename.
 | 22 | `functional` | OCaml (opam), Haskell (ghcup) |
 | 23 | `scientific` | Julia (juliaup) + Metal.jl |
 | 24 | `symbolic` | SBCL, Quicklisp, Prolog |
+| 25 | `containers` | Docker Desktop, Docker CLI, Compose, Linux VM |
 | 30 | `formal` | Quint, Apalache, Lean 4, Z3, Alloy, TLA+ |
 | 40 | `agents` | Claude Code, Codex, Gemini CLI |
 | 41 | `editors` | VS Code, Cursor |
+| 45 | `cloud` | Google Cloud CLI (`gcloud`, `bq`, `gsutil`) |
 | 50 | `web` | FrankenPHP, Composer, Caddy |
 | 60 | `ml` | No installs — MLX GPU verification |
 | 70 | `latex` | **Verify only** — never installs or modifies TeX |
@@ -172,6 +174,7 @@ Suggested order for a fresh machine:
 ./dev install 00-base 10-managers 21-python
 ./dev install 40-agents 41-editors
 ./dev install 20-systems 30-formal
+./dev install 25-containers 45-cloud
 ./dev install 50-web 70-latex
 ./dev install 22-functional 23-scientific 24-symbolic
 ./dev status
