@@ -146,6 +146,81 @@ All three are **generated** from `state/shellents.tsv`, which is why purging an 
 
 ---
 
+## Managing API keys with `key`
+
+`key` is this repository's small API-key manager. It keeps one key per file in `~/.config/secrets/`, sets owner-only permissions, validates keys against provider APIs, and generates `~/.zsh_secrets`. The generated loader is sourced through `.zshenv`, so SDKs, scripts, and non-interactive agent shells receive the expected environment variables.
+
+Install the command on the devenv-managed PATH once:
+
+```bash
+ln -sf "$HOME/Tools/devenv/key" "$HOME/.local/bin/key"
+command -v key
+key path
+key doctor
+```
+
+The expected command path is `~/.local/bin/key`. Existing files such as `~/.config/secrets/openai.key` are adopted automatically; no import is required:
+
+```bash
+key list       # stored providers, masked values, and age
+key env        # recognized keys exported in this shell, also masked
+key providers  # supported providers, variable names, and console URLs
+```
+
+`key list` and `key env` never print full values. The storage directory is mode `700`, each `*.key` and the generated loader are mode `600`, and the key files live outside Git repositories.
+
+### Add and load a key
+
+```bash
+key add huggingface
+exec zsh -l
+key env
+```
+
+`key add` reads hidden terminal input rather than a command-line argument, keeping the value out of shell history and the process table. For known providers it makes an authenticated metadata request before saving. It sends no model prompt. A rejected key is not written; HTTP 429 is treated as probably valid but rate-limited.
+
+Adding or removing any key regenerates `~/.zsh_secrets` with explicit mappings. For example, `huggingface.key` becomes `HF_TOKEN`, while `openai.key` becomes `OPENAI_API_KEY`. Restart existing agents and long-lived processes after reloading because processes retain the environment with which they started.
+
+### Test and rotate
+
+```bash
+key test openai
+key test --all
+key rotate openai
+exec zsh -l
+```
+
+Rotation validates the replacement before touching the current key. On success it leaves the old value beside the key as a timestamped `.bak`; restart dependent processes, revoke the old key at the provider, then delete that backup once the new key is confirmed. `key doctor` warns while old backups remain.
+
+### Remove a key
+
+```bash
+key rm openai
+exec zsh -l
+```
+
+Removal asks for confirmation, deletes the local file, and regenerates the loader. Revoke the credential at the provider too; deleting the local copy does not revoke it upstream.
+
+### Add an unlisted provider
+
+```bash
+key add myprovider \
+  --var MYPROVIDER_API_KEY \
+  --test-url https://api.example.com/v1/models
+```
+
+Custom test endpoints use bearer authentication. Omitting `--test-url` saves without validation after a warning. Use a lowercase, filesystem-safe provider name because it becomes `~/.config/secrets/<provider>.key`.
+
+### Safety notes
+
+- Do not pass secrets as arguments, paste them into shell commands, or commit them to a repository.
+- `key show <provider>` intentionally prints the raw credential for piping. Avoid it in terminals, logs, recordings, and support transcripts.
+- `key test --all` performs one live authenticated metadata request for every stored provider. It does not send prompts or consume model tokens, but it does require network access.
+- Claude Code and Codex maintain their own credentials after login. Their subscription sessions are separate from the API-key files managed here.
+- Run `key help` for the complete command summary and `key doctor` whenever permissions or loading look wrong.
+
+---
+
 ## Clusters
 
 Numbered so dependency order is visible in the filename.
@@ -292,4 +367,28 @@ TeX Live is registered but sits outside `$HOME` and needs sudo — deliberately,
 
 ## Licence
 
-MIT.
+This project is released under the [MIT License](LICENSE).
+
+```text
+MIT License
+
+Copyright (c) 2026 Anjan Goswami / SmartInfer, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
