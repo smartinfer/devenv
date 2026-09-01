@@ -270,7 +270,7 @@ Numbered so dependency order is visible in the filename.
 | 00 | `base` | Command Line Tools, shell wiring |
 | 10 | `managers` | mise (runtimes), uv (Python) |
 | 20 | `systems` | Rust, Ninja, CMake |
-| 21 | `python` | CPython 3.12/3.13, global CLIs |
+| 21 | `python` | CPython 3.12/3.13, global CLIs, Hugging Face Hub |
 | 22 | `functional` | OCaml (opam), Haskell (ghcup) |
 | 23 | `scientific` | Julia (juliaup) + Metal.jl |
 | 24 | `symbolic` | SBCL, Quicklisp, Prolog |
@@ -306,6 +306,8 @@ Splitting it means a failure in one cluster doesn't cost you the rest.
 **Python belongs to uv, and only uv.** Listing `python` in `mise.toml` *and* installing uv gives you two interpreter sets shadowing each other — the single most common way a Mac Python setup rots. uv owns interpreters, virtualenvs, tool installs, and cache. Purge all of Python everywhere with `dev purge uv`.
 
 Per-project venvs are correct, not chaos. uv hardlinks from one content-addressed cache, so twenty projects sharing torch cost roughly one copy on disk. And for throwaway experiments you don't need a venv at all — PEP 723 inline metadata plus `uv run script.py` resolves, caches, and runs with nothing to name or clean up.
+
+**Hugging Face is a default AI data tool.** The `hf` shell command and `huggingface_hub` library are installed as their own uv-managed tool for browsing, downloading, uploading, caching, and working with models, datasets, Spaces, and Jobs. `HF_HOME` gives the machine one visible cache, and Xet high-performance mode is enabled for fast large-artifact transfers. Project libraries such as Transformers, Datasets, Diffusers, and PyTorch still belong in each project's environment; making the Hub CLI global does not make application dependencies global.
 
 **SBCL comes from a prebuilt tarball, not mise.** mise's SBCL plugin compiles from source, bootstraps via ECL on macOS, and needs zstd with `CPATH`/`LIBRARY_PATH` set — which on a Mac means a package manager. Its own README recommends against it.
 
