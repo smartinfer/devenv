@@ -176,7 +176,7 @@ Zsh's startup order:
 
 So:
 
-- **`shell/env.zsh`** ← `.zshenv` — environment variables only. This is the *only* file non-interactive shells read, which is why API keys belong here (AI agents spawn non-interactive shells).
+- **`shell/env.zsh`** ← `.zshenv` — non-secret environment variables only. Provider API keys are intentionally excluded and enter only explicitly scoped child processes.
 - **`shell/path.zsh`** ← `.zprofile` — PATH, applied *after* `path_helper` so the prepends survive. Idempotent and de-duplicating, and also sourced from `env.zsh` so agent shells get it too.
 - **`shell/interactive.zsh`** ← `.zshrc` — hooks, aliases, completions.
 
@@ -188,7 +188,7 @@ All three are **generated** from `state/shellents.tsv`, which is why purging an 
 
 ## Managing API keys with `key`
 
-`key` is this repository's small API-key manager. It keeps one key per file in `~/.config/secrets/`, sets owner-only permissions, validates keys against provider APIs, and generates `~/.zsh_secrets`. The generated loader is sourced through `.zshenv`, so SDKs, scripts, and non-interactive agent shells receive the expected environment variables.
+`key` is this repository's small API-key manager. It keeps one key per file in `~/.config/secrets/`, sets owner-only permissions, and validates keys against provider APIs. Stored credentials are **not** exported by ordinary shells. They enter only an explicitly selected child command or temporary shell.
 
 Install the command on the devenv-managed PATH once:
 
@@ -203,23 +203,77 @@ The expected command path is `~/.local/bin/key`. Existing files such as `~/.conf
 
 ```bash
 key list       # stored providers, masked values, and age
-key env        # recognized keys exported in this shell, also masked
+key env        # safe stored/exported status; never values
 key providers  # supported providers, variable names, and console URLs
 ```
 
-`key list` and `key env` never print full values. The storage directory is mode `700`, each `*.key` and the generated loader are mode `600`, and the key files live outside Git repositories.
+`key list` and `key env` never print full values. The storage directory is mode `700`, each `*.key` is mode `600`, and the key files live outside Git repositories. A mode-`600` inert `~/.zsh_secrets` compatibility stub safely neutralizes older installations that still source that path.
 
-### Add and load a key
+### Add a key
 
 ```bash
 key add huggingface
-exec zsh -l
-key env
+key list
 ```
 
 `key add` reads hidden terminal input rather than a command-line argument, keeping the value out of shell history and the process table. For known providers it makes an authenticated metadata request before saving. It sends no model prompt. A rejected key is not written; HTTP 429 is treated as probably valid but rate-limited.
 
-Adding or removing any key regenerates `~/.zsh_secrets` with explicit mappings. For example, `huggingface.key` becomes `HF_TOKEN`, while `openai.key` becomes `OPENAI_API_KEY`. Restart existing agents and long-lived processes after reloading because processes retain the environment with which they started.
+The existing provider registry remains the single mapping source: for example, `huggingface` becomes `HF_TOKEN`, while `openai` becomes `OPENAI_API_KEY`. Adding a key stores it; it does not expose it to the login environment.
+
+### Run with explicit credentials
+
+```bash
+# One API provider for one process.
+key run openai -- python app.py
+
+# Multiple providers are first-class.
+key run openai anthropic gemini -- ./model-router
+
+# A temporary interactive child shell. KEY_SCOPE shows the selected names.
+key shell openai
+key shell openai anthropic gemini
+```
+
+Before launching a child, `key run` and `key shell` remove every devenv-managed provider variable inherited from the parent, then inject only the selected providers through the child environment. Secret values never become command arguments. The command keeps its current directory, argv, standard streams, signals, and exit status. On exit, the parent environment is unchanged.
+
+All-provider access is never implicit. When deliberately needed, use `key run --all -- command` or `key shell --all`.
+
+### Named provider profiles
+
+Profiles contain provider names, never copies of keys:
+
+```bash
+key profile add thinker openai anthropic gemini
+key profile show thinker
+key profile list
+key run-profile thinker -- thinker-model-turn-server
+key shell-profile thinker
+key profile rm thinker
+```
+
+Profiles live beside the secure store with mode `600`. Starting a profiled process still reads the current key files, so rotation requires no profile update.
+
+### Upgrading from global exports
+
+The first invocation of the upgraded `key` command replaces an older generated `~/.zsh_secrets` exporter with an inert compatibility stub without touching stored keys. Regenerating shell wiring removes the obsolete source line entirely:
+
+```bash
+key doctor
+./dev clean-install shellwiring --yes
+```
+
+Processes keep the environment with which they started. Close and reopen terminals, agents, and servers that were launched before this upgrade; their inherited copies cannot be removed externally.
+
+### API keys versus official CLI sessions
+
+A normal shell has no devenv-managed API keys. This allows `claude`, `codex`, and `gemini` to use their own subscription/OAuth login state naturally. Use a scoped key command only for software that should make metered provider API calls:
+
+```text
+Normal shell:              no managed provider credentials
+API application:           key run openai -- app
+Multi-provider service:    key run openai anthropic gemini -- app
+Official coding CLIs:      claude / codex / gemini use their own sessions
+```
 
 ### Test and rotate
 
@@ -227,19 +281,17 @@ Adding or removing any key regenerates `~/.zsh_secrets` with explicit mappings. 
 key test openai
 key test --all
 key rotate openai
-exec zsh -l
 ```
 
-Rotation validates the replacement before touching the current key. On success it leaves the old value beside the key as a timestamped `.bak`; restart dependent processes, revoke the old key at the provider, then delete that backup once the new key is confirmed. `key doctor` warns while old backups remain.
+Rotation validates the replacement before touching the current key. On success it leaves the old value beside the key as a timestamped `.bak`; restart scoped dependent processes, revoke the old key at the provider, then delete that backup once the new key is confirmed. `key doctor` warns while old backups remain.
 
 ### Remove a key
 
 ```bash
 key rm openai
-exec zsh -l
 ```
 
-Removal asks for confirmation, deletes the local file, and regenerates the loader. Revoke the credential at the provider too; deleting the local copy does not revoke it upstream.
+Removal asks for confirmation, deletes the local file, and refreshes the inert compatibility loader. Revoke the credential at the provider too; deleting the local copy does not revoke it upstream.
 
 ### Add an unlisted provider
 
@@ -249,7 +301,7 @@ key add myprovider \
   --test-url https://api.example.com/v1/models
 ```
 
-Custom test endpoints use bearer authentication. Omitting `--test-url` saves without validation after a warning. Use a lowercase, filesystem-safe provider name because it becomes `~/.config/secrets/<provider>.key`.
+Custom test endpoints use bearer authentication. Omitting `--test-url` saves without validation after a warning. Custom provider metadata (name, variable, and test URL—never the key value) is persisted in the secure directory so scoped commands can use it later. Use a lowercase, filesystem-safe provider name because it becomes `~/.config/secrets/<provider>.key`.
 
 ### Safety notes
 

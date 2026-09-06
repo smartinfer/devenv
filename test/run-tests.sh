@@ -179,6 +179,7 @@ regen_shell
 assert     "[ -f '$DEV_SHELL/path.zsh' ]"                   "path.zsh generated"
 assert_has "$(cat "$DEV_SHELL/path.zsh")" "/tmp/testbin"    "path entry lands in path.zsh"
 assert_has "$(cat "$DEV_SHELL/env.zsh")"  "TEST_VAR"        "env entry lands in env.zsh"
+assert_not "grep -q 'zsh_secrets' '$DEV_SHELL/env.zsh'"       "normal env does not source provider secrets"
 assert_has "$(cat "$DEV_SHELL/interactive.zsh")" "alias t"  "hook lands in interactive.zsh"
 assert_not "grep -q 'TEST_VAR' '$DEV_SHELL/path.zsh'"       "env does not leak into path.zsh"
 assert_not "grep -q 'alias t' '$DEV_SHELL/path.zsh'"        "hooks do not leak into path.zsh"

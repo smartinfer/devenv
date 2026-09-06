@@ -165,7 +165,6 @@ regen_shell() {
     echo "# sourced from ~/.zshenv : environment only, no PATH, no hooks."
     echo 'export DEVENV_ROOT="'"$DEV_ROOT"'"'
     awk -F'\t' '$2=="env"{print $3}' "$SHELLENTS"
-    echo '[ -f "$HOME/.zsh_secrets" ] && source "$HOME/.zsh_secrets"'
     echo '# PATH is also applied here so non-interactive shells (agents) work.'
     echo '[ -f "'"$DEV_SHELL"'/path.zsh" ] && source "'"$DEV_SHELL"'/path.zsh"'
   } > "$DEV_SHELL/env.zsh"
