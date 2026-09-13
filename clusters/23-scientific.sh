@@ -2,6 +2,7 @@
 cluster 23-scientific
 
 item name=r \
+  supports=darwin \
   desc="R for arm64 macOS via the official CRAN installer (system framework)" \
   check='command -v R' version='R --version' method=manual \
   home='~/Library/R:per-user R packages' \
@@ -40,7 +41,7 @@ install_r() {
 }
 
 item name=julia \
-  desc="Julia via juliaup, plus Metal.jl for GPU on Apple silicon" \
+  desc="Julia via juliaup, plus development tools and Metal.jl on Apple silicon" \
   check='command -v julia' version='julia --version' method=script \
   home='~/.juliaup:versions ~500MB|~/.julia:packages, grows' \
   shell='path.zsh:$HOME/.juliaup/bin' \
@@ -54,7 +55,11 @@ install_julia() {
   export PATH="$HOME/.juliaup/bin:$PATH"
   run juliaup add release
   run juliaup default release
-  run julia -e 'using Pkg; Pkg.add(["Metal","BenchmarkTools","Revise"])'
+  if [ "$DEV_PLATFORM" = darwin ]; then
+    run julia -e 'using Pkg; Pkg.add(["Metal","BenchmarkTools","Revise"])'
+  else
+    run julia -e 'using Pkg; Pkg.add(["BenchmarkTools","Revise"])'
+  fi
   shellent_add julia path "$HOME/.juliaup/bin"
   regen_shell
   return 0

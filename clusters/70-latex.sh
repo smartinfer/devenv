@@ -2,6 +2,7 @@
 cluster 70-latex
 
 item name=texlive \
+  supports=darwin \
   desc="MacTeX / TeX Live — VERIFY ONLY. This never installs or modifies TeX." \
   check='command -v pdflatex' version='tex --version' method=verify \
   home='' shell='path.zsh:/Library/TeX/texbin' \

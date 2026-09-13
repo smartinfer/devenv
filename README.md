@@ -1,11 +1,19 @@
 # devenv
 
-**Anjan Goswami's dev setup for Mac Pros**
+**Anjan Goswami's developer workstation setup**
 SmartInfer, Inc.
 
-A single, auditable, Homebrew-free developer environment for Apple silicon Macs — polyglot toolchains, formal-methods tooling, AI coding agents, and local ML inference, with every install disclosed before it happens and removable afterwards.
+A single, auditable developer environment for Apple silicon Macs and Ubuntu-family Linux — polyglot toolchains, formal-methods tooling, AI coding agents, and local ML inference, with every install disclosed before it happens and removable afterwards.
 
 Built for a MacBook Pro M5 Max / 128 GB, but nothing here is specific to that machine beyond a few notes about the Neural Accelerators.
+
+## Platform support
+
+- **Apple-silicon macOS:** primary, full catalog.
+- **Ubuntu/Debian-family Linux (`x86_64` or `aarch64`):** shell wiring, key management, language-native managers, core toolchains, agents, cloud tools, and portable web/formal tools. Run `dev platform` to verify detection.
+- **Other Linux distributions:** detected, but the base system-package installer intentionally stops with manual guidance.
+
+Platform-specific items are filtered while the cluster files load. macOS definitions remain unchanged and Linux alternatives live in separate files, so adding Linux support does not route a Mac through Linux installers. Apple-only items such as Docker Desktop, GUI editors, MacTeX, SBCL's Darwin binary, R's macOS framework, Z3's macOS archive, and MLX are omitted from Linux plans.
 
 ---
 
@@ -23,7 +31,7 @@ Every ecosystem brings some combination of a compiler, runtime, version manager,
 
 This repository takes the other approach:
 
-1. **No Homebrew.** No sudo, except where Apple requires it.
+1. **No Homebrew.** No sudo on macOS except where Apple requires it; Linux system prerequisites are separately disclosed and explicitly approved.
 2. **Everything under `$HOME`.** One directory per tool, no shared prefix.
 3. **Every install is registered** with its filesystem roots and an exact purge command. Nothing is untraceable.
 4. **Language runtimes come from that language's own manager**, never from a general-purpose one.
@@ -72,6 +80,7 @@ git clone <your-remote> ~/tools/devenv
 cd ~/tools/devenv
 
 ./test/run-tests.sh      # hermetic, no network, no installs — must pass first
+./dev platform           # confirm OS, distribution, and architecture
 ./dev check              # what's installed and what isn't
 ./dev plan               # full disclosure of what an install would change
 ./dev install 00-base    # start here; wires the shell

@@ -2,7 +2,7 @@
 cluster 21-python
 
 item name=python-runtimes \
-  desc="CPython 3.12 and 3.13 managed by uv — never Apple's /usr/bin/python3" \
+  desc="CPython 3.12 and 3.13 managed by uv — never the OS-owned /usr/bin/python3" \
   check='uv python list --only-installed 2>/dev/null | grep -q 3.12' \
   version='uv --version' method=uv \
   home='~/.local/share/uv/python:2 interpreters ~200MB' \
@@ -16,13 +16,13 @@ install_python_runtimes() {
   have uv || { err "uv missing — run: dev install uv"; return 1; }
   run uv python install 3.12 3.13 || return 1
   shellent_add python-runtimes env 'export TOKENIZERS_PARALLELISM=false'
-  shellent_add python-runtimes env 'export PYTORCH_ENABLE_MPS_FALLBACK=1'
+  [ "$DEV_PLATFORM" = darwin ] && shellent_add python-runtimes env 'export PYTORCH_ENABLE_MPS_FALLBACK=1'
   regen_shell
   return 0
 }
 
 item name=python-tools \
-  desc="Global Python CLIs, each in its own uv-managed venv: ruff, mypy, ipython, jupyterlab, mlx-lm" \
+  desc="Global Python CLIs in isolated uv-managed environments; MLX tooling is macOS-only" \
   check='command -v ruff >/dev/null && command -v ipython' version='ruff --version' method=uv \
   home='~/.local/share/uv/tools:one venv per tool|~/.local/bin:shims' shell='' \
   network='pypi.org' system='' apps='' receipt='' \
@@ -36,7 +36,9 @@ install_python_tools() {
   for t in ruff mypy ipython pre-commit jupyterlab httpie; do
     run uv tool install --python 3.12 "$t" || warn "uv tool $t failed"
   done
-  run uv tool install --python 3.12 mlx-lm || warn "mlx-lm failed"
+  if [ "$DEV_PLATFORM" = darwin ]; then
+    run uv tool install --python 3.12 mlx-lm || warn "mlx-lm failed"
+  fi
   return 0
 }
 
@@ -62,7 +64,7 @@ install_huggingface() {
   # HF_HUB_ENABLE_HF_TRANSFER setting without losing unrelated ML settings.
   shellent_del_item python-runtimes
   shellent_add python-runtimes env 'export TOKENIZERS_PARALLELISM=false'
-  shellent_add python-runtimes env 'export PYTORCH_ENABLE_MPS_FALLBACK=1'
+  [ "$DEV_PLATFORM" = darwin ] && shellent_add python-runtimes env 'export PYTORCH_ENABLE_MPS_FALLBACK=1'
   shellent_add huggingface env 'export HF_HOME="$HOME/.cache/huggingface"'
   shellent_add huggingface env 'export HF_XET_HIGH_PERFORMANCE=1'
   shellent_add huggingface env 'unset HF_HUB_ENABLE_HF_TRANSFER'

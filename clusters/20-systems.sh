@@ -29,7 +29,12 @@ item name=ninja \
   purge='rm -f "$HOME/.local/bin/ninja"' \
   manual='Download ninja-mac.zip from github.com/ninja-build/ninja/releases, unzip into ~/.local/bin' \
   install=install_ninja
-install_ninja() { install_gh_bin ninja-build/ninja 'mac' ninja; }
+install_ninja() {
+  case "$DEV_PLATFORM" in
+    darwin) install_gh_bin ninja-build/ninja 'ninja-mac\.zip' ninja ;;
+    linux)  install_gh_bin ninja-build/ninja 'ninja-linux\.zip' ninja ;;
+  esac
+}
 
 item name=cmake \
   desc="CMake — cmake, ctest, cpack" \
@@ -43,14 +48,28 @@ item name=cmake \
 install_cmake() {
   ensure_dirs
   local url tmp app b
-  url=$(gh_asset_url Kitware/CMake 'macos.*\.tar\.gz')
-  [ -n "$url" ] || { err "no CMake macOS tarball in latest release"; return 1; }
+  if [ "$DEV_PLATFORM" = darwin ]; then
+    url=$(gh_asset_url Kitware/CMake 'macos.*\.tar\.gz')
+  elif [ "$DEV_ARCH" = arm64 ]; then
+    url=$(gh_asset_url Kitware/CMake 'linux-aarch64\.tar\.gz')
+  else
+    url=$(gh_asset_url Kitware/CMake 'linux-x86_64\.tar\.gz')
+  fi
+  [ -n "$url" ] || { err "no CMake asset for $(platform_label)"; return 1; }
   inf "$url"
   tmp=$(mktemp -d); run curl -fsSL "$url" -o "$tmp/c.tgz" || { rm -rf "$tmp"; return 1; }
   tar -xzf "$tmp/c.tgz" -C "$tmp" >>"$LOGFILE" 2>&1
-  app=$(find "$tmp" -maxdepth 2 -name 'CMake.app' 2>/dev/null | head -1)
-  [ -n "$app" ] || { err "CMake.app not found inside tarball"; rm -rf "$tmp"; return 1; }
-  rm -rf "$LOCAL_OPT/cmake"; mkdir -p "$LOCAL_OPT/cmake"; cp -R "$app" "$LOCAL_OPT/cmake/"
-  for b in cmake ctest cpack; do ln -sf "$LOCAL_OPT/cmake/CMake.app/Contents/bin/$b" "$LOCAL_BIN/$b"; done
+  rm -rf "$LOCAL_OPT/cmake"; mkdir -p "$LOCAL_OPT/cmake"
+  if [ "$DEV_PLATFORM" = darwin ]; then
+    app=$(find "$tmp" -maxdepth 2 -name 'CMake.app' 2>/dev/null | head -1)
+    [ -n "$app" ] || { err "CMake.app not found inside tarball"; rm -rf "$tmp"; return 1; }
+    cp -R "$app" "$LOCAL_OPT/cmake/"
+    for b in cmake ctest cpack; do ln -sf "$LOCAL_OPT/cmake/CMake.app/Contents/bin/$b" "$LOCAL_BIN/$b"; done
+  else
+    app=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d -name 'cmake-*' | head -1)
+    [ -n "$app" ] || { err "CMake directory not found inside tarball"; rm -rf "$tmp"; return 1; }
+    cp -R "$app"/. "$LOCAL_OPT/cmake/"
+    for b in cmake ctest cpack; do ln -sf "$LOCAL_OPT/cmake/bin/$b" "$LOCAL_BIN/$b"; done
+  fi
   rm -rf "$tmp"; return 0
 }

@@ -2,6 +2,7 @@
 cluster 41-editors
 
 item name=vscode \
+  supports=darwin \
   desc="Visual Studio Code (arm64) + the 'code' shell command" \
   check='[ -d "/Applications/Visual Studio Code.app" ]' version='' method=dmg \
   home='~/Library/Application Support/Code:settings and state|~/.vscode:extensions' \
@@ -21,6 +22,7 @@ install_vscode() {
 }
 
 item name=cursor \
+  supports=darwin \
   desc="Cursor editor + the 'cursor' shell command (manual download)" \
   check='[ -d "/Applications/Cursor.app" ]' version='' method=manual \
   home='~/Library/Application Support/Cursor:settings|~/.cursor:extensions' \

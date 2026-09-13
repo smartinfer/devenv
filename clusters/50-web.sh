@@ -10,7 +10,15 @@ item name=frankenphp \
   manual='Download the mac-arm64 binary from github.com/php/frankenphp/releases into ~/.local/bin' \
   alt='macOS stopped bundling PHP in Monterey; building php from source without a package manager means extension hell' \
   install=install_frankenphp
-install_frankenphp() { install_gh_bin php/frankenphp 'mac-arm64' frankenphp; }
+install_frankenphp() {
+  if [ "$DEV_PLATFORM" = darwin ]; then
+    install_gh_bin php/frankenphp 'mac-arm64' frankenphp
+  elif [ "$DEV_ARCH" = arm64 ]; then
+    install_gh_bin php/frankenphp 'linux-aarch64' frankenphp
+  else
+    install_gh_bin php/frankenphp 'linux-x86_64' frankenphp
+  fi
+}
 
 item name=composer \
   desc="Composer — PHP dependency manager (single .phar)" \
@@ -34,4 +42,12 @@ item name=caddy \
   purge='rm -f "$HOME/.local/bin/caddy"' \
   manual='Download the mac_arm64 tarball from github.com/caddyserver/caddy/releases into ~/.local/bin' \
   install=install_caddy
-install_caddy() { install_gh_bin caddyserver/caddy 'mac_arm64' caddy; }
+install_caddy() {
+  if [ "$DEV_PLATFORM" = darwin ]; then
+    install_gh_bin caddyserver/caddy 'mac_arm64' caddy
+  elif [ "$DEV_ARCH" = arm64 ]; then
+    install_gh_bin caddyserver/caddy 'linux_arm64' caddy
+  else
+    install_gh_bin caddyserver/caddy 'linux_amd64' caddy
+  fi
+}

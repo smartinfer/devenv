@@ -2,6 +2,7 @@
 cluster 24-symbolic
 
 item name=sbcl \
+  supports=darwin \
   desc="Steel Bank Common Lisp — prebuilt arm64-darwin tarball, not compiled from source" \
   check='command -v sbcl' version='sbcl --version' method=tarball \
   home='~/.local/bin/sbcl:binary|~/.local/lib/sbcl:core + contribs ~60MB' shell='' \
@@ -29,6 +30,7 @@ install_sbcl() {
 }
 
 item name=quicklisp \
+  supports=darwin \
   desc="Quicklisp library manager for Common Lisp" \
   check='[ -d "$HOME/quicklisp" ]' version='' method=script \
   home='~/quicklisp:library cache|~/.sbclrc:+1 load line' shell='' \

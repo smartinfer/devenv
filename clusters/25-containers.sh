@@ -2,6 +2,7 @@
 cluster 25-containers
 
 item name=docker \
+  supports=darwin \
   desc="Docker Desktop for Apple silicon — Docker CLI, Compose, Buildx, and a Linux VM" \
   check='[ -x "/Applications/Docker.app/Contents/Resources/bin/docker" ]' \
   version='"/Applications/Docker.app/Contents/Resources/bin/docker" --version' method=dmg \

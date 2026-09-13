@@ -17,8 +17,14 @@ install_ocaml() {
     # Resolve the asset from the API. Never hardcode a version under
     # /latest/download/ — the filename will not match the newest release.
     local url
-    url=$(gh_asset_url ocaml/opam 'macos-arm64$')
-    [ -n "$url" ] || url=$(gh_asset_url ocaml/opam 'arm64.*macos|macos.*arm64')
+    if [ "$DEV_PLATFORM" = darwin ]; then
+      url=$(gh_asset_url ocaml/opam 'macos-arm64$')
+      [ -n "$url" ] || url=$(gh_asset_url ocaml/opam 'arm64.*macos|macos.*arm64')
+    elif [ "$DEV_ARCH" = arm64 ]; then
+      url=$(gh_asset_url ocaml/opam 'arm64-linux$|aarch64.*linux|linux.*aarch64')
+    else
+      url=$(gh_asset_url ocaml/opam 'x86_64-linux$|x86_64.*linux|linux.*x86_64')
+    fi
     if [ -n "$url" ]; then
       inf "$url"
       run curl -fsSL "$url" -o "$LOCAL_BIN/opam" && chmod +x "$LOCAL_BIN/opam"

@@ -2,6 +2,7 @@
 cluster 60-ml
 
 item name=mlx-check \
+  supports=darwin \
   desc="Verify MLX runs on the GPU — installs nothing globally, uses an ephemeral uv env" \
   check='false' version='' method=verify \
   home='~/.cache/uv:ephemeral env, cached' shell='' \

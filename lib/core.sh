@@ -4,6 +4,13 @@
 
 : "${DEV_ROOT:?DEV_ROOT must be set by the dev entrypoint}"
 
+# Tests and embedders may source the libraries directly instead of entering
+# through ./dev. Keep platform state available in that path too.
+if [ -z "${DEV_PLATFORM:-}" ] || ! type supports_platform >/dev/null 2>&1; then
+  # shellcheck disable=SC1090
+  . "$DEV_ROOT/lib/platform.sh"
+fi
+
 DEV_LIB="$DEV_ROOT/lib"
 DEV_CLUSTERS="$DEV_ROOT/clusters"
 DEV_SHELL="$DEV_ROOT/shell"
@@ -47,8 +54,7 @@ log_open() {
     echo "action    : $action $*"
     echo "date      : $(date)"
     echo "host      : $(hostname 2>/dev/null)"
-    echo "os        : $(sw_vers -productVersion 2>/dev/null || uname -sr)"
-    echo "arch      : $(uname -m)"
+    echo "platform  : $(platform_label)"
     echo "shell     : ${SHELL:-?}"
     echo "bash      : ${BASH_VERSION:-?}"
     echo "devenv    : $DEV_ROOT"

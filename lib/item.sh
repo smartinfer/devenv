@@ -38,8 +38,10 @@ cluster() {
 #   alt       an alternative approach, shown in status --commands
 #   install   name of the bash function that performs the install
 item() {
-  local blob="" kv
+  local blob="" kv supported="darwin,linux"
   for kv in "$@"; do blob="${blob}${kv}${US}"; done
+  for kv in "$@"; do case "$kv" in supports=*) supported=${kv#supports=} ;; esac; done
+  supports_platform "$supported" || return 0
   local n; n=$(printf '%s' "$blob" | tr "$US" '\n' | sed -n 's/^name=//p' | head -1)
   [ -n "$n" ] || { echo "item() missing name=" >&2; return 1; }
   ITEM_NAMES[${#ITEM_NAMES[@]}]="$n"
@@ -172,13 +174,16 @@ regen_shell() {
 
   {
     echo "$hdr"
-    echo "# sourced from ~/.zprofile AFTER macOS /etc/zprofile runs path_helper,"
-    echo "# which is why these prepends survive. Idempotent + de-duplicating."
+    if [ "$DEV_PLATFORM" = darwin ]; then
+      echo "# sourced from ~/.zprofile AFTER macOS /etc/zprofile runs path_helper,"
+      echo "# which is why these prepends survive. Idempotent + de-duplicating."
+    else
+      echo "# sourced from ~/.zprofile. Idempotent + de-duplicating."
+    fi
     echo 'devenv_path_prepend() {'
     echo '  [ -d "$1" ] || return 0'
     echo '  # Remove any existing occurrence first, then prepend. Skipping when'
-    echo '  # already present is wrong: macOS path_helper appends /etc/paths.d'
-    echo '  # entries, so a dir can be on PATH but in last place.'
+    echo '  # A directory may already be present but too late in PATH.'
     echo '  PATH=$(printf %s "$PATH" | tr ":" "\\n" | grep -vx "$1" | paste -sd: -)'
     echo '  PATH="$1:$PATH"'
     echo '}'

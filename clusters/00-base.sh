@@ -2,6 +2,7 @@
 cluster 00-base
 
 item name=clt \
+  supports=darwin \
   desc="Apple Command Line Tools — clang, ld, make, git, and the macOS SDK" \
   check='xcode-select -p >/dev/null 2>&1' \
   version='clang --version' \

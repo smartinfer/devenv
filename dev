@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# dev — Anjan Goswami's macOS developer environment manager
+# dev — Anjan Goswami's macOS and Linux developer environment manager
 # SmartInfer, Inc.
 #
 # Bash 3.2 compatible (macOS ships bash 3.2 and that is the floor here).
@@ -10,6 +10,8 @@ set -uo pipefail
 DEV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export DEV_ROOT
 
+. "$DEV_ROOT/lib/platform.sh"
+platform_supported || { echo "dev: unsupported platform: $(uname -s) $(uname -m)" >&2; exit 1; }
 . "$DEV_ROOT/lib/core.sh"
 . "$DEV_ROOT/lib/item.sh"
 . "$DEV_ROOT/lib/ui.sh"
@@ -25,7 +27,7 @@ VERSION="1.0.0"
 # ---------------------------------------------------------------------------
 cmd_help() {
 cat <<'HELP'
-dev — macOS developer environment manager
+dev — macOS and Linux developer environment manager
 
 USAGE
   dev [command] [targets...] [flags]
@@ -46,8 +48,9 @@ COMMANDS
   purge --cluster <name> Remove a whole cluster.
   purge --all            Remove everything in the registry (typed confirm).
   registry               Installed items, their roots, and disk usage.
-  doctor                 Correctness checks: PATH order, shadowing, Apple python.
+  doctor                 Correctness checks: PATH order, shadowing, and runtime ownership.
   clusters               List clusters and their items.
+  platform               Show the detected operating system and architecture.
   log [n]                Show the last log (default 200 lines).
   help                   This.
 
@@ -69,7 +72,7 @@ PER-ITEM PROMPT
 
 FILES
   ~/.zshenv      -> devenv/shell/env.zsh          environment only
-  ~/.zprofile    -> devenv/shell/path.zsh         PATH (after macOS path_helper)
+  ~/.zprofile    -> devenv/shell/path.zsh         login-shell PATH
   ~/.zshrc       -> devenv/shell/interactive.zsh  hooks and aliases
   state/         registry.tsv, deferred.tsv, logs/   (gitignored)
 
@@ -78,6 +81,8 @@ delete this directory. Everything else lives under ~/.local or one
 dot-directory per language manager.
 HELP
 }
+
+cmd_platform() { platform_label; echo; }
 
 # ---------------------------------------------------------------------------
 # target resolution
@@ -407,19 +412,23 @@ cmd_doctor() {
       if [ -n "$before" ] && [ -n "$after" ] && [ "$before" -lt "$after" ]; then
         ok "~/.local/bin precedes /usr/bin"
       else
-        err "/usr/bin precedes ~/.local/bin — macOS path_helper has won."
-        err "Ensure ~/.zprofile sources devenv/shell/path.zsh (it runs after /etc/zprofile)."
+        err "/usr/bin precedes ~/.local/bin"
+        if [ "$DEV_PLATFORM" = darwin ]; then
+          err "Ensure ~/.zprofile sources devenv/shell/path.zsh (after /etc/zprofile)."
+        else
+          err "Ensure ~/.zprofile sources devenv/shell/path.zsh."
+        fi
       fi ;;
     *) err "~/.local/bin is not on PATH at all" ;;
   esac
 
   if [ "$(command -v python3 2>/dev/null)" = "/usr/bin/python3" ]; then
-    warn "python3 resolves to Apple's system Python. Use 'uv run', never bare python3."
+    warn "python3 resolves to the OS-owned Python. Use 'uv run', never bare python3."
   else
     ok "python3: $(command -v python3 2>/dev/null || echo 'none — correct, use uv run')"
   fi
 
-  if have brew; then
+  if [ "$DEV_PLATFORM" = darwin ] && have brew; then
     warn "Homebrew is installed at $(brew --prefix 2>/dev/null) and may shadow these tools."
   else ok "no Homebrew"; fi
 
@@ -438,16 +447,20 @@ cmd_doctor() {
     grep -q '>>> devenv >>>' "$HOME/.$f" 2>/dev/null && ok ".$f wired" || warn ".$f not wired"
   done
 
-  say "GUI applications"
-  dim "Apps launched from Finder/Dock inherit PATH from launchd, not from zsh."
-  dim "Launch editors from a terminal, or set their integrated shell to a login shell."
+  if [ "$DEV_PLATFORM" = darwin ]; then
+    say "GUI applications"
+    dim "Apps launched from Finder/Dock inherit PATH from launchd, not from zsh."
+    dim "Launch editors from a terminal, or set their integrated shell to a login shell."
+  fi
 }
 
 cmd_clusters() {
-  local c n
+  local c n names
   for c in $CLUSTER_LIST; do
+    names=$(items_in_cluster "$c")
+    [ -n "$names" ] || continue
     say "$c"
-    for n in $(items_in_cluster "$c"); do
+    for n in $names; do
       printf "    %-18s %s\n" "$n" "$(item_get "$n" desc)"
     done
   done
@@ -487,6 +500,7 @@ set -- $ARGS
 
 case "$CMD" in
   help)          cmd_help ;;
+  platform)      cmd_platform ;;
   clusters)      cmd_clusters ;;
   registry)      cmd_registry ;;
   status)        log_open status; cmd_status "$@" ;;

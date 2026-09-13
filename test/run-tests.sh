@@ -252,6 +252,26 @@ assert_not "grep -q \$'\033' \$(ls -1 '$SANDBOX/state2/logs'/*.log | grep -v lat
 assert_has "$(cat "$(ls -1 "$SANDBOX/state2/logs"/*.log | grep -v latest | head -1)")" "devenv" \
            "log has a header"
 
+group "8f. Linux platform selection is isolated"
+run_linux_dev() {
+  ( cd "$PKG" && DEVENV_PLATFORM=linux DEVENV_ARCH=x86_64 DEVENV_DISTRO=ubuntu \
+      DEVENV_STATE="$SANDBOX/linux-state" DEVENV_PREFIX="$SANDBOX/linux-local" \
+      ./dev "$@" --no-color 2>&1 )
+}
+LINUX_PLATFORM=$(run_linux_dev platform)
+assert_has "$LINUX_PLATFORM" "linux/ubuntu (x86_64)" "Linux platform is normalized"
+LINUX_CLUSTERS=$(run_linux_dev clusters)
+assert_has "$LINUX_CLUSTERS" "build-tools" "Linux loads its base prerequisites"
+assert_not "printf '%s' \"\$LINUX_CLUSTERS\" | grep -q 'Apple Command Line Tools'" \
+           "Linux excludes the macOS base item"
+assert_not "printf '%s' \"\$LINUX_CLUSTERS\" | grep -q 'Visual Studio Code (arm64)'" \
+           "Linux excludes macOS editor installers"
+assert_not "printf '%s' \"\$LINUX_CLUSTERS\" | grep -q 'MLX runs on the GPU'" \
+           "Linux excludes Apple-only MLX checks"
+LINUX_PLAN=$(run_linux_dev plan build-tools)
+assert_has "$LINUX_PLAN" "apt" "Linux base plan discloses apt"
+assert_has "$LINUX_PLAN" "needs sudo" "Linux system packages require approval"
+
 # ---------------------------------------------------------------------------
 group "9. --yes must not auto-approve SYSTEM or APPS"
 # ---------------------------------------------------------------------------
@@ -296,7 +316,8 @@ group "10c. curl always uses -f (never pipe an HTTP error page into sh)"
 BADCURL=""
 for f in "$PKG"/lib/*.sh "$PKG"/clusters/*.sh; do
   h=$(sed 's/#.*$//' "$f" \
-      | grep -vE "^[[:space:]]*(manual|alt|desc)=" \
+      | grep -vE "^[[:space:]]*(manual|alt|desc|check)=" \
+      | grep -vE 'apt-get[[:space:]]+(install|remove)' \
       | grep -nE '(^|[^a-zA-Z])curl ' \
       | grep -vE 'curl ([^|;]*[[:space:]])?-[A-Za-z]*f' | head -2)
   [ -n "$h" ] && BADCURL="$BADCURL${f#$PKG/}: $h

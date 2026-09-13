@@ -32,7 +32,12 @@ install_codex() {
   have codex && return 0
   install_via_script "https://chatgpt.com/codex/install.sh" && return 0
   warn "standalone installer failed; falling back to the GitHub release binary"
-  install_gh_bin openai/codex 'aarch64-apple-darwin' codex
+  case "$DEV_PLATFORM:$DEV_ARCH" in
+    darwin:arm64)  install_gh_bin openai/codex 'aarch64-apple-darwin' codex ;;
+    darwin:x86_64) install_gh_bin openai/codex 'x86_64-apple-darwin' codex ;;
+    linux:arm64)   install_gh_bin openai/codex 'aarch64-unknown-linux' codex ;;
+    linux:x86_64)  install_gh_bin openai/codex 'x86_64-unknown-linux' codex ;;
+  esac
 }
 
 item name=gemini-cli \

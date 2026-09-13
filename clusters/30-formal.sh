@@ -48,6 +48,7 @@ install_lean() {
 }
 
 item name=z3 \
+  supports=darwin \
   desc="Z3 SMT solver" \
   check='command -v z3' version='z3 --version' method=gh-binary \
   home='~/.local/bin/z3:~30MB' shell='' \
