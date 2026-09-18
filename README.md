@@ -48,7 +48,7 @@ Homebrew is excellent when the goal is to install a large catalog of software wi
 | Before installation | Shows paths, network sources, shell changes, apps, system files, receipts, and purge command | Usually shows a package name and dependency plan |
 | Runtime ownership | Python belongs to uv, Rust to rustup, Node/Go/JVM to mise, and so on | May install parallel runtimes into a shared prefix |
 | Filesystem layout | Tool-specific directories, primarily under `$HOME` | Shared manager-controlled prefix and dependency tree |
-| Shell integration | Generates auditable zsh files with macOS startup order handled explicitly | Adds a shared prefix or manager hook to PATH |
+| Shell integration | Generates auditable shell files matched to your login shell, with macOS startup order handled explicitly | Adds a shared prefix or manager hook to PATH |
 | Removal | Records each tool's roots and exact purge operation | Removes managed packages; user state and native-manager files may remain |
 | Partial adoption | Install, defer, or permanently decline individual tools | Packages are installed when requested; personal decisions live elsewhere |
 | Failure visibility | Persistent logs, status, doctor, registry, and copyable manual alternatives | Manager-specific diagnostics and logs |
@@ -102,8 +102,10 @@ dev purge <item>             Remove one item.
 dev purge --cluster <name>   Remove a cluster.
 dev purge --all              Remove everything (typed confirmation).
 dev registry                 What's on disk, where, and how big.
-dev doctor                   Correctness: PATH order, shadowing, Apple's python.
+dev doctor                   Correctness: PATH order, shadowing, Apple's python,
+                             and which dotfiles are wired for your login shell.
 dev clusters                 List clusters and their items.
+dev platform                 Detected OS, distribution, arch, and shell family.
 dev log [n]                  Tail the most recent log.
 dev help
 ```
@@ -145,9 +147,9 @@ Every item shows its complete footprint before you decide. Six categories, and o
 | **APPS** | Anything landing in `/Applications` |
 | **RECEIPT** | A `pkgutil` receipt or LaunchAgent created |
 
-`SHELL` never names your dotfiles directly. Everything writes into `shell/*.zsh` inside this repository; your `.zshenv`, `.zprofile`, and `.zshrc` are touched exactly once, during `00-base`, and that prompt shows the three lines verbatim first.
+`SHELL` never names your dotfiles directly. Everything writes into generated files inside this repository's `shell/` directory; your dotfiles are touched exactly once, during `00-base`, and that prompt shows the added lines verbatim first.
 
-**Nothing ever touches `.bash_profile` or `.bashrc`.** macOS's login shell is zsh; its bash is 3.2 from 2007.
+**Which dotfiles depends on your login shell** — see [Shell families](#shell-families-zsh-and-bash). On macOS and for a zsh login it is `.zshenv`, `.zprofile`, and `.zshrc`; for a bash login on Linux it is `.profile` and `.bashrc`. Nothing ever creates `.bash_profile`, which would shadow the `.profile` chain Debian-family systems rely on.
 
 `--yes` skips prompts but **refuses to auto-approve any item with a SYSTEM or APPS footprint.** Those always ask.
 
@@ -195,9 +197,36 @@ All three are **generated** from `state/shellents.tsv`, which is why purging an 
 
 ---
 
+## Shell families: zsh and bash
+
+The generated files follow the **login shell**, not the platform. Wiring the wrong family fails silently in the worst way: every install succeeds, the registry looks correct, and nothing lands on PATH — because the dotfiles carrying the source lines are files your shell never reads.
+
+`dev platform` reports the detected family; `dev doctor` shows what is wired where and warns about a stale block left behind by a previous login shell.
+
+| | zsh login (all macOS) | bash login (Debian-family default) |
+|---|---|---|
+| Generated files | `shell/env.zsh`, `path.zsh`, `interactive.zsh` | `shell/env.sh`, `path.sh`, `interactive.sh` |
+| Environment | `.zshenv` → `env.zsh` | `.profile` → `env.sh` |
+| PATH | `.zprofile` → `path.zsh` | via `env.sh`, which sources `path.sh` |
+| Hooks and aliases | `.zshrc` → `interactive.zsh` | `.bashrc` → `env.sh` + `interactive.sh` |
+
+macOS is pinned to zsh regardless of `$SHELL`: it is the system default there, and the whole `path_helper` ordering above only makes sense for zsh. On Linux the passwd entry decides. Override with `DEVENV_SHELL_KIND=zsh|bash` if you need to.
+
+**Why bash needs a different map.** Bash has no `.zshenv` — no file it reads for *every* shell, including non-interactive ones. The closest equivalent is `.profile`, which the desktop session and `ssh` logins read once, so everything spawned from that session inherits the environment. `.bashrc` then repeats `env.sh` for non-login interactive shells and adds the hooks. Repeating is safe by construction: env entries are plain exports, and `path.sh` removes an entry before prepending it.
+
+Everything reachable from `.profile` stays **POSIX** — `.` rather than `source`, no bashisms — because dash reads `.profile` on an `sh` login. The test suite executes the generated `env.sh` under `sh` to enforce this.
+
+`.bash_profile` is deliberately never created. Bash reads it *instead of* `.profile`, which would silently cut the `.profile` → `.bashrc` chain that Ubuntu and Debian set up by default.
+
+Shell-specific payloads follow the family too: `mise` is asked for `mise activate bash` or `mise activate zsh` as appropriate, since the wrong one produces a syntax error on every prompt.
+
+---
+
 ## Managing API keys with `key`
 
-`key` is this repository's small API-key manager. It keeps one key per file in `~/.config/secrets/`, sets owner-only permissions, validates keys against provider APIs, and generates `~/.zsh_secrets`. The generated loader is sourced through `.zshenv`, so SDKs, scripts, and non-interactive agent shells receive the expected environment variables.
+`key` is this repository's small API-key manager. It keeps one key per file in `~/.config/secrets/`, sets owner-only permissions, validates keys against provider APIs, and generates a loader that exports them. The loader is sourced through devenv's generated env file, so SDKs, scripts, and non-interactive agent shells receive the expected environment variables.
+
+**The loader follows the login shell**, because it is sourced by the generated env file and has to be valid in the shell reading it: a zsh login gets `~/.zsh_secrets` (zsh null globs and `:t:r` modifiers), a bash login gets `~/.bash_secrets` written in POSIX shell, since on Linux it is reachable from `~/.profile` and dash may read it. If you change your login shell, run `key sync` to rewrite the loader in the new language — a zsh loader sourced by bash exports nothing and errors on every prompt.
 
 Install the command on the devenv-managed PATH once:
 
@@ -214,6 +243,7 @@ The expected command path is `~/.local/bin/key`. Existing files such as `~/.conf
 key list       # stored providers, masked values, and age
 key env        # recognized keys exported in this shell, also masked
 key providers  # supported providers, variable names, and console URLs
+key sync       # rewrite the loader for the current login shell
 ```
 
 `key list` and `key env` never print full values. The storage directory is mode `700`, each `*.key` and the generated loader are mode `600`, and the key files live outside Git repositories.
@@ -222,13 +252,13 @@ key providers  # supported providers, variable names, and console URLs
 
 ```bash
 key add huggingface
-exec zsh -l
+exec "$SHELL" -l
 key env
 ```
 
 `key add` reads hidden terminal input rather than a command-line argument, keeping the value out of shell history and the process table. For known providers it makes an authenticated metadata request before saving. It sends no model prompt. A rejected key is not written; HTTP 429 is treated as probably valid but rate-limited.
 
-Adding or removing any key regenerates `~/.zsh_secrets` with explicit mappings. For example, `huggingface.key` becomes `HF_TOKEN`, while `openai.key` becomes `OPENAI_API_KEY`. Restart existing agents and long-lived processes after reloading because processes retain the environment with which they started.
+Adding or removing any key regenerates the loader with explicit mappings. For example, `huggingface.key` becomes `HF_TOKEN`, while `openai.key` becomes `OPENAI_API_KEY`. Restart existing agents and long-lived processes after reloading because processes retain the environment with which they started.
 
 ### Test and rotate
 
@@ -236,7 +266,7 @@ Adding or removing any key regenerates `~/.zsh_secrets` with explicit mappings. 
 key test openai
 key test --all
 key rotate openai
-exec zsh -l
+exec "$SHELL" -l
 ```
 
 Rotation validates the replacement before touching the current key. On success it leaves the old value beside the key as a timestamped `.bak`; restart dependent processes, revoke the old key at the provider, then delete that backup once the new key is confirmed. `key doctor` warns while old backups remain.
@@ -245,7 +275,7 @@ Rotation validates the replacement before touching the current key. On success i
 
 ```bash
 key rm openai
-exec zsh -l
+exec "$SHELL" -l
 ```
 
 Removal asks for confirmation, deletes the local file, and regenerates the loader. Revoke the credential at the provider too; deleting the local copy does not revoke it upstream.
@@ -266,7 +296,7 @@ Custom test endpoints use bearer authentication. Omitting `--test-url` saves wit
 - `key show <provider>` intentionally prints the raw credential for piping. Avoid it in terminals, logs, recordings, and support transcripts.
 - `key test --all` performs one live authenticated metadata request for every stored provider. It does not send prompts or consume model tokens, but it does require network access.
 - Claude Code and Codex maintain their own credentials after login. Their subscription sessions are separate from the API-key files managed here.
-- Run `key help` for the complete command summary and `key doctor` whenever permissions or loading look wrong.
+- Run `key help` for the complete command summary, `key doctor` whenever permissions or loading look wrong, and `key sync` after changing your login shell.
 
 ---
 
@@ -372,7 +402,7 @@ devenv/
 │   ├── ui.sh             footprint cards, prompts, tables
 │   └── install.sh        reusable installers (gh release, tarball, script)
 ├── clusters/*.sh         one file per cluster; declarative item definitions
-├── shell/                GENERATED — env.zsh, path.zsh, interactive.zsh
+├── shell/                GENERATED — env/path/interactive, .zsh or .sh per login shell
 ├── state/                GENERATED — registry.tsv, deferred.tsv, logs/
 ├── test/run-tests.sh     hermetic self-tests
 ├── mise.toml             declarative runtime registry

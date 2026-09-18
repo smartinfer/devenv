@@ -176,13 +176,19 @@ assert_eq "$(awk -F'\t' 'NR>1 && $1=="testitem" && $2=="path"' "$SHELLENTS" | wc
 
 DEV_SHELL="$SANDBOX/shell"; mkdir -p "$DEV_SHELL"
 regen_shell
-assert     "[ -f '$DEV_SHELL/path.zsh' ]"                   "path.zsh generated"
-assert_has "$(cat "$DEV_SHELL/path.zsh")" "/tmp/testbin"    "path entry lands in path.zsh"
-assert_has "$(cat "$DEV_SHELL/env.zsh")"  "TEST_VAR"        "env entry lands in env.zsh"
-assert_has "$(cat "$DEV_SHELL/interactive.zsh")" "alias t"  "hook lands in interactive.zsh"
-assert_not "grep -q 'TEST_VAR' '$DEV_SHELL/path.zsh'"       "env does not leak into path.zsh"
-assert_not "grep -q 'alias t' '$DEV_SHELL/path.zsh'"        "hooks do not leak into path.zsh"
-assert_has "$(cat "$DEV_SHELL/path.zsh")" "devenv_path_prepend" "path.zsh de-duplicates PATH"
+# File names follow the login shell (zsh -> *.zsh, bash -> *.sh), so these
+# assert against the active family rather than a hardcoded extension.
+E="$DEV_SHELL_EXT"
+assert     "[ -f '$DEV_SHELL/path.$E' ]"                    "path.$E generated"
+assert_has "$(cat "$DEV_SHELL/path.$E")" "/tmp/testbin"     "path entry lands in path.$E"
+assert_has "$(cat "$DEV_SHELL/env.$E")"  "TEST_VAR"         "env entry lands in env.$E"
+assert_has "$(cat "$DEV_SHELL/interactive.$E")" "alias t"   "hook lands in interactive.$E"
+assert_not "grep -q 'TEST_VAR' '$DEV_SHELL/path.$E'"        "env does not leak into path.$E"
+assert_not "grep -q 'alias t' '$DEV_SHELL/path.$E'"         "hooks do not leak into path.$E"
+assert_has "$(cat "$DEV_SHELL/path.$E")" "devenv_path_prepend" "path.$E de-duplicates PATH"
+# env.* pulls path.* in itself, which is what makes non-interactive shells
+# (coding agents) see the same PATH as an interactive one.
+assert_has "$(cat "$DEV_SHELL/env.$E")" "path.$E"           "env.$E sources path.$E"
 
 # PATH prepend logic must be idempotent — simulate two sourcings.
 PATH_BEFORE="$PATH"
@@ -196,7 +202,7 @@ PATH="$PATH_BEFORE"
 
 shellent_del_item testitem
 regen_shell
-assert_not "grep -q '/tmp/testbin' '$DEV_SHELL/path.zsh'" "purging an item removes its PATH entry"
+assert_not "grep -q '/tmp/testbin' '$DEV_SHELL/path.$E'" "purging an item removes its PATH entry"
 
 # ---------------------------------------------------------------------------
 group "8. CLI surface (no writes, no network)"
@@ -217,11 +223,23 @@ assert_has "$RCARD" "PURGE"        "footprint card shows the purge line"
 assert_has "$RCARD" "sh.rustup.rs" "footprint card discloses the network source"
 # Render the card directly. Going through `dev plan` made this depend on
 # whether the item happened to be installed — plan skips items already ok.
-CARD=$(footprint_card clt missing 2>&1)
+#
+# clt and vscode are darwin-only items, so on Linux they are never loaded and
+# footprint_card renders nothing. Assert against whichever items actually
+# carry a SYSTEM/APPS footprint on this host: the invariant under test is
+# "SYSTEM footprints are disclosed and flagged", not "macOS is the host".
+if [ "$DEV_PLATFORM" = darwin ]; then
+  SYS_ITEM=clt;         SYS_PATH=CommandLineTools
+  APPS_ITEM=vscode;     APPS_MARK=Applications
+else
+  SYS_ITEM=build-tools; SYS_PATH=/usr/include
+  APPS_ITEM=build-tools; APPS_MARK=apt
+fi
+CARD=$(footprint_card "$SYS_ITEM" missing 2>&1)
 assert_has "$CARD" "needs sudo"   "SYSTEM footprints are flagged as needing sudo"
-assert_has "$CARD" "CommandLineTools" "SYSTEM paths are disclosed"
-CARD2=$(footprint_card vscode missing 2>&1)
-assert_has "$CARD2" "Applications"    "APPS footprints are disclosed"
+assert_has "$CARD" "$SYS_PATH"    "SYSTEM paths are disclosed"
+CARD2=$(footprint_card "$APPS_ITEM" missing 2>&1)
+assert_has "$CARD2" "$APPS_MARK"      "APPS/receipt footprints are disclosed"
 assert_has "$CARD2" "PURGE"           "every card shows its purge command"
 assert_has "$(run_dev --version)" "dev "           "dev --version works"
 assert_not "run_dev bogus-command | grep -q 'unknown command' && false" "unknown command is rejected"
@@ -271,6 +289,93 @@ assert_not "printf '%s' \"\$LINUX_CLUSTERS\" | grep -q 'MLX runs on the GPU'" \
 LINUX_PLAN=$(run_linux_dev plan build-tools)
 assert_has "$LINUX_PLAN" "apt" "Linux base plan discloses apt"
 assert_has "$LINUX_PLAN" "needs sudo" "Linux system packages require approval"
+
+# ---------------------------------------------------------------------------
+group "8g. Shell wiring follows the login shell"
+# ---------------------------------------------------------------------------
+# devenv generates zsh files on macOS and for zsh logins; a bash login gets
+# POSIX *.sh wired into ~/.profile and ~/.bashrc instead. Wiring the wrong
+# family is silent: the installs succeed and nothing lands on PATH.
+run_kind_dev() {  # <zsh|bash> <args...>
+  local kind="$1"; shift
+  ( cd "$PKG" && DEVENV_SHELL_KIND="$kind" \
+      DEVENV_STATE="$SANDBOX/kind-$kind-state" DEVENV_PREFIX="$SANDBOX/kind-$kind-local" \
+      ./dev "$@" --no-color 2>&1 )
+}
+
+ZPLAN=$(run_kind_dev zsh plan shellwiring)
+assert_has "$ZPLAN" ".zshenv"   "zsh wiring discloses ~/.zshenv"
+assert_has "$ZPLAN" ".zprofile" "zsh wiring discloses ~/.zprofile"
+assert_has "$ZPLAN" "env.zsh"   "zsh wiring generates *.zsh"
+assert_not "printf '%s' \"\$ZPLAN\" | grep -q 'bashrc'" "zsh wiring leaves bash dotfiles alone"
+
+BPLAN=$(run_kind_dev bash plan shellwiring)
+assert_has "$BPLAN" ".profile"  "bash wiring discloses ~/.profile"
+assert_has "$BPLAN" ".bashrc"   "bash wiring discloses ~/.bashrc"
+assert_has "$BPLAN" "env.sh"    "bash wiring generates *.sh"
+assert_not "printf '%s' \"\$BPLAN\" | grep -q 'zshenv'" "bash wiring leaves zsh dotfiles alone"
+
+# mise emits shell-specific activation code; the wrong one errors on every
+# prompt. The disclosure card has to name the shell it will actually ask for.
+assert_has "$(run_kind_dev bash plan mise)" "mise activate bash" "mise activates for bash"
+assert_has "$(run_kind_dev zsh  plan mise)" "mise activate zsh"  "mise activates for zsh"
+
+# Round-trip the real installer against a sandboxed HOME, both families.
+# Two phases so the assertions can inspect the files between them.
+wire_phase() {  # <kind>
+  local kind="$1"
+  local h="$SANDBOX/home-$kind"
+  rm -rf "$h"; mkdir -p "$h"
+  ( HOME="$h" DEVENV_SHELL_KIND="$kind" DEV_ROOT="$PKG" \
+    DEVENV_STATE="$SANDBOX/wire-$kind" DEVENV_PREFIX="$h/.local" \
+    bash -c '
+      . "$DEV_ROOT/lib/platform.sh"; . "$DEV_ROOT/lib/core.sh"
+      . "$DEV_ROOT/lib/item.sh";     . "$DEV_ROOT/lib/ui.sh"
+      . "$DEV_ROOT/lib/install.sh";  tsv_init; load_clusters
+      DEV_SHELL="$HOME/shellout"; mkdir -p "$DEV_SHELL"
+      install_shellwiring
+      [ "${1:-}" = "unwire" ] && devenv_unwire_shell
+      exit 0
+    ' _ "${2:-}" ) >/dev/null 2>&1
+}
+
+wire_phase bash
+assert "grep -q 'devenv' '$SANDBOX/home-bash/.profile'" "bash install wires ~/.profile"
+assert "grep -q 'devenv' '$SANDBOX/home-bash/.bashrc'"  "bash install wires ~/.bashrc"
+assert_not "[ -e '$SANDBOX/home-bash/.zshenv' ]"        "bash install creates no zsh dotfiles"
+assert "[ -f '$SANDBOX/home-bash/shellout/env.sh' ]"    "bash install generates env.sh"
+assert_has "$(cat "$SANDBOX/home-bash/.bashrc")" "interactive.sh" "bash .bashrc sources the hooks file"
+# .profile may be read by dash on an sh login, so the block must be POSIX.
+assert_not "grep -qE '^\s*source ' '$SANDBOX/home-bash/.profile'" "bash wiring uses POSIX '.' not 'source'"
+
+wire_phase bash unwire
+assert_not "grep -q 'devenv' '$SANDBOX/home-bash/.profile'" "unwire cleans ~/.profile"
+assert_not "grep -q 'devenv' '$SANDBOX/home-bash/.bashrc'"  "unwire cleans ~/.bashrc"
+
+wire_phase zsh
+assert "grep -q 'devenv' '$SANDBOX/home-zsh/.zprofile'" "zsh install wires ~/.zprofile"
+assert "[ -f '$SANDBOX/home-zsh/shellout/env.zsh' ]"    "zsh install generates env.zsh"
+assert_not "[ -e '$SANDBOX/home-zsh/.bashrc' ]"         "zsh install creates no bash dotfiles"
+
+wire_phase zsh unwire
+assert_not "grep -q 'devenv' '$SANDBOX/home-zsh/.zprofile'" "unwire cleans ~/.zprofile"
+
+# Generated files must parse in the shell that will source them.
+if command -v zsh >/dev/null 2>&1; then
+  assert "zsh -n '$SANDBOX/home-zsh/shellout/env.zsh'" "generated env.zsh parses under zsh"
+else
+  t_ok "generated env.zsh parses under zsh (skipped: no zsh on this host)"
+fi
+for f in env path interactive; do
+  assert "sh -n '$SANDBOX/home-bash/shellout/$f.sh'" "generated $f.sh parses under POSIX sh"
+done
+# `sh -n` only parses — `source` is a syntactically valid command name and
+# slips through. ~/.profile is read by dash on an sh login, so actually run
+# the chain and require a clean exit.
+assert "sh -c '. \"$SANDBOX/home-bash/shellout/env.sh\"'" \
+       "generated env.sh runs under POSIX sh (no bashisms)"
+assert_not "grep -qw source '$SANDBOX/home-bash/shellout/env.sh'" \
+       "generated env.sh uses '.' not 'source'"
 
 # ---------------------------------------------------------------------------
 group "9. --yes must not auto-approve SYSTEM or APPS"

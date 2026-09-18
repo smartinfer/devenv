@@ -25,37 +25,46 @@ install_clt() {
   return 1
 }
 
+# The dotfiles, generated files, and disclosure text all follow the login
+# shell — zsh on macOS, whatever the passwd entry says on Linux. See
+# shellwire_plan() in lib/platform.sh for why bash needs a different map.
 item name=shellwiring \
-  desc="Three source lines in ~/.zshenv, ~/.zprofile, ~/.zshrc pointing at devenv/shell/" \
-  check='grep -q "devenv" "$HOME/.zprofile" 2>/dev/null' \
+  desc="Source lines in $(shellwire_plan | cut -d: -f1 | sed 's|^|~/|' | paste -sd', ' -) pointing at devenv/shell/" \
+  check="grep -q 'devenv' \"\$HOME/$(shellwire_primary)\" 2>/dev/null" \
   version='' \
   method=verify \
-  home='~/.zshenv:+3 lines|~/.zprofile:+3 lines|~/.zshrc:+3 lines' \
-  shell='env.zsh, path.zsh, interactive.zsh:generated in devenv/shell/' \
+  home="$(shellwire_plan | cut -d: -f1 | sed 's|^|~/|;s|$|:+3 lines|' | paste -sd'|' -)" \
+  shell="$(shellwire_plan | cut -d: -f2 | tr ',' '\n' | sort -u | paste -sd', ' -):generated in devenv/shell/" \
   network='' system='' apps='' receipt='' \
   purge='devenv_unwire_shell' \
-  manual='Add to .zshenv/.zprofile/.zshrc respectively: source ~/tools/devenv/shell/{env,path,interactive}.zsh' \
+  manual="Add to $(shellwire_plan | sed 's|:| <- |' | paste -sd'; ' -) respectively: source ~/tools/devenv/shell/<file>" \
   install=install_shellwiring
 
 install_shellwiring() {
-  local m="# >>> devenv >>>" e="# <<< devenv <<<" f line
-  touch "$HOME/.zshenv" "$HOME/.zprofile" "$HOME/.zshrc"
-  for f in zshenv zprofile zshrc; do
-    case "$f" in
-      zshenv)   line="[ -f \"$DEV_SHELL/env.zsh\" ] && source \"$DEV_SHELL/env.zsh\"" ;;
-      zprofile) line="[ -f \"$DEV_SHELL/path.zsh\" ] && source \"$DEV_SHELL/path.zsh\"" ;;
-      zshrc)    line="[ -f \"$DEV_SHELL/interactive.zsh\" ] && source \"$DEV_SHELL/interactive.zsh\"" ;;
-    esac
-    if grep -qF "$m" "$HOME/.$f" 2>/dev/null; then
-      ok ".$f already wired"
-    else
-      printf '\n%s\n%s\n%s\n' "$m" "$line" "$e" >> "$HOME/.$f"
-      ok "wired .$f"
-    fi
-  done
+  local m="# >>> devenv >>>" e="# <<< devenv <<<" row f gen line block oldifs
+  # Generate first: the dotfiles are about to source these, and a login in
+  # another terminal should never find a source line pointing at nothing.
   shellent_add shellwiring path "$LOCAL_BIN"
   shellent_add shellwiring env  'export XDG_DATA_HOME="$HOME/.local/share"'
   shellent_add shellwiring env  'export XDG_CACHE_HOME="$HOME/.cache"'
   regen_shell
+
+  for row in $(shellwire_plan); do
+    f="${row%%:*}"
+    touch "$HOME/$f"
+    if grep -qF "$m" "$HOME/$f" 2>/dev/null; then
+      ok "$f already wired"
+      continue
+    fi
+    block=""
+    oldifs=$IFS; IFS=','; set -- ${row#*:}; IFS=$oldifs
+    for gen in "$@"; do
+      line="[ -f \"$DEV_SHELL/$gen\" ] && . \"$DEV_SHELL/$gen\""
+      block="${block}${line}
+"
+    done
+    printf '\n%s\n%s%s\n' "$m" "$block" "$e" >> "$HOME/$f"
+    ok "wired $f"
+  done
   return 0
 }

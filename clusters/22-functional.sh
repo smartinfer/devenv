@@ -5,7 +5,7 @@ item name=ocaml \
   desc="OCaml 5.x via opam — dune, merlin, ocaml-lsp, ocamlformat, utop" \
   check='command -v ocaml' version='ocaml -version' method=script \
   home='~/.opam:switch + packages ~1.2GB|~/.local/bin/opam:binary' \
-  shell='interactive.zsh:eval opam env' \
+  shell="$DEV_F_INT"':eval opam env' \
   network='https://opam.ocaml.org/install.sh' system='' apps='' receipt='' \
   purge='rm -rf "$HOME/.opam" "$HOME/.local/bin/opam"' \
   manual='See https://opam.ocaml.org/doc/Install.html then: opam init --bare; opam switch create 5.2.0' \
@@ -47,7 +47,7 @@ item name=haskell \
   desc="GHC + cabal + stack + HLS via GHCup" \
   check='command -v ghc' version='ghc --version' method=script \
   home='~/.ghcup:compilers ~3GB|~/.cabal:package db ~500MB' \
-  shell='path.zsh:$HOME/.ghcup/bin|interactive.zsh:source ghcup env' \
+  shell="$DEV_F_PATH"':$HOME/.ghcup/bin|'"$DEV_F_INT"':source ghcup env' \
   network='https://get-ghcup.haskell.org' system='' apps='' receipt='' \
   purge='ghcup nuke 2>/dev/null; rm -rf "$HOME/.ghcup" "$HOME/.cabal"' \
   manual='curl --proto "=https" --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh' \

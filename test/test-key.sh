@@ -102,10 +102,51 @@ L=$(cat "$DEVENV_LOADER" 2>/dev/null)
 assert_has "$L" "GENERATED"          "loader is marked generated"
 assert_has "$L" "ANTHROPIC_API_KEY"  "loader maps anthropic"
 assert_has "$L" "HF_TOKEN"           "loader maps huggingface to HF_TOKEN"
-assert_has "$L" '.key(N)'            "loader uses a null glob so an empty dir is not an error"
 assert_hasnt "$L" "sk-ant-abcdef"    "loader contains no key material"
 PERM=$(stat -c '%a' "$DEVENV_LOADER" 2>/dev/null || stat -f '%Lp' "$DEVENV_LOADER" 2>/dev/null)
 assert_eq "$PERM" "600" "loader is mode 600"
+
+group "8b. The loader is written in the login shell's language"
+# The loader is sourced by devenv/shell/env.*, so it has to be valid in the
+# shell that sources it. zsh gets (N) glob qualifiers and :t:r modifiers;
+# bash and dash get neither. Generate both here rather than only the host's,
+# so a Mac also tests the POSIX path and a Linux box the zsh one.
+gen_loader() {  # <zsh|bash> <outfile>
+  ( DEVENV_SHELL_KIND="$1" DEVENV_SECRETS_DIR="$DEVENV_SECRETS_DIR" \
+    DEVENV_LOADER="$2" "$PKG/key" sync ) >/dev/null 2>&1
+  [ -f "$2" ]
+}
+
+gen_loader zsh "$SANDBOX/loader.zsh"
+ZL=$(cat "$SANDBOX/loader.zsh" 2>/dev/null)
+assert_has "$ZL" '.key(N)'      "zsh loader uses a null glob so an empty dir is not an error"
+assert_has "$ZL" ':t:r'         "zsh loader uses zsh path modifiers"
+assert_has "$ZL" "env.zsh"      "zsh loader names the zsh env file"
+if command -v zsh >/dev/null 2>&1; then
+  assert "zsh -c '. \"$SANDBOX/loader.zsh\"; [ -n \"\$ANTHROPIC_API_KEY\" ]'" \
+         "zsh loader exports the key when sourced by zsh"
+else
+  t_ok "zsh loader exports the key when sourced by zsh (skipped: no zsh here)"
+fi
+
+gen_loader bash "$SANDBOX/loader.sh"
+BL=$(cat "$SANDBOX/loader.sh" 2>/dev/null)
+assert_has  "$BL" 'continue'    "POSIX loader guards an unmatched glob"
+assert_hasnt "$BL" '.key(N)'    "POSIX loader has no zsh glob qualifier"
+assert_hasnt "$BL" ':t:r'       "POSIX loader has no zsh path modifiers"
+assert_has  "$BL" "env.sh"      "POSIX loader names the bash env file"
+# Syntax checks are not enough: (N), :t:r and $(< f) are all parseable in
+# bash and simply do the wrong thing. Execute it.
+assert "sh -c '. \"$SANDBOX/loader.sh\"; [ -n \"\$ANTHROPIC_API_KEY\" ]'" \
+       "POSIX loader exports the key when sourced by sh"
+assert_eq "$(sh -c ". \"$SANDBOX/loader.sh\"" 2>&1)" "" \
+       "POSIX loader is silent when sourced"
+# An empty secrets dir must not produce a glob error on every shell startup.
+EMPTY="$SANDBOX/empty-secrets"; mkdir -p "$EMPTY"
+( DEVENV_SHELL_KIND=bash DEVENV_SECRETS_DIR="$EMPTY" \
+  DEVENV_LOADER="$SANDBOX/loader-empty.sh" "$PKG/key" sync ) >/dev/null 2>&1
+assert_eq "$(sh -c ". \"$SANDBOX/loader-empty.sh\"" 2>&1)" "" \
+       "POSIX loader is silent with an empty secrets dir"
 
 group "9. Guard rails"
 assert_has "$(K add anthropic)"    "rotate" "add refuses to overwrite, points at rotate"
@@ -115,6 +156,7 @@ assert_has "$(K rm nosuch)"        "no key stored"   "rm refuses an unknown prov
 assert_has "$(K bogus)"            "unknown command" "unknown commands are rejected"
 assert_has "$(K help)"             "rotate"          "help documents rotate"
 assert_has "$(K help)"             "stdin"           "help states keys come from stdin"
+assert_has "$(K help)"             "sync"            "help documents sync"
 
 group "10. doctor"
 chmod 644 "$DEVENV_SECRETS_DIR/anthropic.key"

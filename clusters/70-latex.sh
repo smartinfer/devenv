@@ -5,7 +5,7 @@ item name=texlive \
   supports=darwin \
   desc="MacTeX / TeX Live — VERIFY ONLY. This never installs or modifies TeX." \
   check='command -v pdflatex' version='tex --version' method=verify \
-  home='' shell='path.zsh:/Library/TeX/texbin' \
+  home='' shell="$DEV_F_PATH"':/Library/TeX/texbin' \
   network='' \
   system='/usr/local/texlive:distribution|/Library/TeX:texbin symlinks' \
   apps='/Applications/TeX:GUI apps (MacTeX only)' \

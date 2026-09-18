@@ -6,7 +6,7 @@ item name=r \
   desc="R for arm64 macOS via the official CRAN installer (system framework)" \
   check='command -v R' version='R --version' method=manual \
   home='~/Library/R:per-user R packages' \
-  shell='path.zsh:/Library/Frameworks/R.framework/Resources/bin' \
+  shell="$DEV_F_PATH"':/Library/Frameworks/R.framework/Resources/bin' \
   network='https://cran.r-project.org/bin/macosx/big-sur-arm64/base/' \
   system='/Library/Frameworks/R.framework:official R framework|/usr/local/bin/R:command links' \
   apps='' receipt='org.r-project.R' \
@@ -44,7 +44,7 @@ item name=julia \
   desc="Julia via juliaup, plus development tools and Metal.jl on Apple silicon" \
   check='command -v julia' version='julia --version' method=script \
   home='~/.juliaup:versions ~500MB|~/.julia:packages, grows' \
-  shell='path.zsh:$HOME/.juliaup/bin' \
+  shell="$DEV_F_PATH"':$HOME/.juliaup/bin' \
   network='https://install.julialang.org' system='' apps='' receipt='' \
   purge='rm -rf "$HOME/.juliaup" "$HOME/.julia"' \
   manual='curl -fsSL https://install.julialang.org | sh' \

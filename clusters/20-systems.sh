@@ -5,7 +5,7 @@ item name=rust \
   desc="Rust via rustup — rustc, cargo, clippy, rustfmt, rust-analyzer" \
   check='command -v rustc' version='rustc --version' method=script \
   home='~/.rustup:toolchains ~380MB|~/.cargo:cargo home and bin ~70MB' \
-  shell='path.zsh:$HOME/.cargo/bin' \
+  shell="$DEV_F_PATH"':$HOME/.cargo/bin' \
   network='https://sh.rustup.rs' system='' apps='' receipt='' \
   purge='rustup self uninstall -y 2>/dev/null || rm -rf "$HOME/.rustup" "$HOME/.cargo"' \
   manual='curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y' \

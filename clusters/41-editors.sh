@@ -6,7 +6,7 @@ item name=vscode \
   desc="Visual Studio Code (arm64) + the 'code' shell command" \
   check='[ -d "/Applications/Visual Studio Code.app" ]' version='' method=dmg \
   home='~/Library/Application Support/Code:settings and state|~/.vscode:extensions' \
-  shell='path.zsh:symlink code into ~/.local/bin' \
+  shell="$DEV_F_PATH"':symlink code into ~/.local/bin' \
   network='update.code.visualstudio.com' system='' \
   apps='/Applications/Visual Studio Code.app:~350MB' receipt='' \
   purge='rm -rf "/Applications/Visual Studio Code.app" "$HOME/Library/Application Support/Code" "$HOME/.vscode" "$HOME/.local/bin/code"' \
@@ -26,7 +26,7 @@ item name=cursor \
   desc="Cursor editor + the 'cursor' shell command (manual download)" \
   check='[ -d "/Applications/Cursor.app" ]' version='' method=manual \
   home='~/Library/Application Support/Cursor:settings|~/.cursor:extensions' \
-  shell='path.zsh:symlink cursor into ~/.local/bin' \
+  shell="$DEV_F_PATH"':symlink cursor into ~/.local/bin' \
   network='cursor.com/download (manual)' system='' \
   apps='/Applications/Cursor.app:~400MB' receipt='' \
   purge='rm -rf "/Applications/Cursor.app" "$HOME/Library/Application Support/Cursor" "$HOME/.cursor" "$HOME/.local/bin/cursor"' \

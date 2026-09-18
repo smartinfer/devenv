@@ -5,7 +5,7 @@ item name=mise \
   desc="mise — declarative runtime manager for node, go, and the JVM" \
   check='command -v mise' version='mise --version' method=script \
   home="~/.local/bin/mise:binary|~/.local/share/mise:runtimes ~600MB|~/.config/mise:symlink to config|$DEV_CONFIG_DIR:your mise.toml" \
-  shell='interactive.zsh:eval mise activate zsh' \
+  shell="$DEV_F_INT"':eval mise activate '"$DEV_SHELL_KIND" \
   network='https://mise.run' system='' apps='' receipt='' \
   purge='rm -rf "$HOME/.local/share/mise" "$HOME/.config/mise" "$HOME/.local/bin/mise" "$DEV_CONFIG_DIR/mise.toml"' \
   manual='curl -fsSL https://mise.run | sh' \
@@ -17,7 +17,9 @@ install_mise() {
   mkdir -p "$DEV_CONFIG_DIR" "$HOME/.config/mise"
   [ -f "$DEV_CONFIG_DIR/mise.toml" ] || cp "$DEV_ROOT/mise.toml" "$DEV_CONFIG_DIR/mise.toml"
   ln -sf "$DEV_CONFIG_DIR/mise.toml" "$HOME/.config/mise/config.toml"
-  shellent_add mise hook 'eval "$($HOME/.local/bin/mise activate zsh)"'
+  # mise emits different activation code per shell; asking it for the wrong
+  # one yields syntax errors on every prompt.
+  shellent_add mise hook 'eval "$($HOME/.local/bin/mise activate '"$DEV_SHELL_KIND"')"'
   regen_shell
   inf "reconciling runtimes declared in $DEV_CONFIG_DIR/mise.toml"
   run "$LOCAL_BIN/mise" install -y || warn "mise install returned nonzero — check the toml"
@@ -28,7 +30,7 @@ item name=uv \
   desc="uv — sole owner of Python: interpreters, venvs, tools, and cache" \
   check='command -v uv' version='uv --version' method=script \
   home='~/.local/bin/uv:binary|~/.local/share/uv:interpreters and tools|~/.cache/uv:package cache' \
-  shell='env.zsh:UV_PYTHON_PREFERENCE=only-managed' \
+  shell="$DEV_F_ENV"':UV_PYTHON_PREFERENCE=only-managed' \
   network='https://astral.sh/uv/install.sh' system='' apps='' receipt='' \
   purge='rm -rf "$HOME/.local/share/uv" "$HOME/.cache/uv" "$HOME/.local/bin/uv" "$HOME/.local/bin/uvx"' \
   manual='curl -LsSf https://astral.sh/uv/install.sh | sh' \

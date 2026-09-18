@@ -6,7 +6,7 @@ item name=gcloud \
   check='[ -x "$HOME/.local/opt/google-cloud-sdk/bin/gcloud" ]' \
   version='"$HOME/.local/opt/google-cloud-sdk/bin/gcloud" version' method=script \
   home='~/.local/opt/google-cloud-sdk:CLI and bundled components ~250MB|~/.config/gcloud:accounts, credentials, projects, and configuration' \
-  shell='path.zsh:$HOME/.local/opt/google-cloud-sdk/bin' \
+  shell="$DEV_F_PATH"':$HOME/.local/opt/google-cloud-sdk/bin' \
   network='https://sdk.cloud.google.com; Google APIs during use' \
   system='' apps='' receipt='' \
   purge='rm -rf "$HOME/.local/opt/google-cloud-sdk" "$HOME/.config/gcloud"' \

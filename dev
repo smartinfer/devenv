@@ -71,18 +71,26 @@ PER-ITEM PROMPT
   [q]uit      stop here
 
 FILES
-  ~/.zshenv      -> devenv/shell/env.zsh          environment only
-  ~/.zprofile    -> devenv/shell/path.zsh         login-shell PATH
-  ~/.zshrc       -> devenv/shell/interactive.zsh  hooks and aliases
-  state/         registry.tsv, deferred.tsv, logs/   (gitignored)
+  Generated shell files follow the login shell — run `dev platform` to see
+  which family is active, and `dev doctor` for what is wired where.
 
-Detach completely: remove the three marked blocks from your dotfiles and
-delete this directory. Everything else lives under ~/.local or one
-dot-directory per language manager.
+    zsh    ~/.zshenv   -> shell/env.zsh          environment only
+           ~/.zprofile -> shell/path.zsh         login-shell PATH
+           ~/.zshrc    -> shell/interactive.zsh  hooks and aliases
+
+    bash   ~/.profile  -> shell/env.sh           env + PATH for the session
+           ~/.bashrc   -> shell/env.sh           and again for non-login shells
+                       -> shell/interactive.sh   hooks and aliases
+
+  state/   registry.tsv, deferred.tsv, logs/   (gitignored)
+
+Detach completely: remove the marked blocks from your dotfiles and delete
+this directory. Everything else lives under ~/.local or one dot-directory
+per language manager.
 HELP
 }
 
-cmd_platform() { platform_label; echo; }
+cmd_platform() { printf '%s · %s\n' "$(platform_label)" "$(shell_label)"; }
 
 # ---------------------------------------------------------------------------
 # target resolution
@@ -242,16 +250,6 @@ cmd_clean_install() {
 # ---------------------------------------------------------------------------
 # purge
 # ---------------------------------------------------------------------------
-devenv_unwire_shell() {
-  local f
-  for f in .zshenv .zprofile .zshrc; do
-    [ -f "$HOME/$f" ] || continue
-    local t; t=$(mktemp)
-    awk '/# >>> devenv >>>/{s=1} !s{print} /# <<< devenv <<</{s=0}' "$HOME/$f" > "$t" && mv "$t" "$HOME/$f"
-    ok "unwired $f"
-  done
-}
-
 purge_one() {
   local n="$1" p
   p=$(tsv_field "$REGISTRY" "$n" 6)
@@ -311,7 +309,7 @@ cmd_status() {
   say "devenv $VERSION"
   inf "root   : $DEV_ROOT"
   inf "git    : $(cd "$DEV_ROOT" 2>/dev/null && git rev-parse --short HEAD 2>/dev/null || echo 'not a repo')"
-  inf "system : $(sw_vers -productVersion 2>/dev/null || uname -sr) · $(uname -m) · ${SHELL:-?}"
+  inf "system : $(sw_vers -productVersion 2>/dev/null || uname -sr) · $(uname -m) · ${SHELL:-?} · $(shell_label)"
   local last; last=$(ls -1t "$DEV_LOGS"/*.log 2>/dev/null | grep -v latest | head -1)
   inf "lastrun: ${last:+$(basename "$last")}"
 
@@ -414,9 +412,9 @@ cmd_doctor() {
       else
         err "/usr/bin precedes ~/.local/bin"
         if [ "$DEV_PLATFORM" = darwin ]; then
-          err "Ensure ~/.zprofile sources devenv/shell/path.zsh (after /etc/zprofile)."
+          err "Ensure ~/$(shellwire_primary) sources devenv/shell/$DEV_F_PATH (after /etc/zprofile)."
         else
-          err "Ensure ~/.zprofile sources devenv/shell/path.zsh."
+          err "Ensure ~/$(shellwire_primary) sources devenv/shell/$DEV_F_PATH."
         fi
       fi ;;
     *) err "~/.local/bin is not on PATH at all" ;;
@@ -437,14 +435,22 @@ cmd_doctor() {
     inf "npm uninstall -g @anthropic-ai/claude-code && hash -r && claude doctor"
   fi
 
-  say "Generated shell files"
-  local f
-  for f in env path interactive; do
-    if [ -f "$DEV_SHELL/$f.zsh" ]; then ok "$f.zsh ($(wc -l < "$DEV_SHELL/$f.zsh" | tr -d ' ') lines)"
-    else warn "$f.zsh missing — run: dev install shellwiring"; fi
+  say "Generated shell files — $DEV_SHELL_KIND login"
+  local f row
+  for f in "$DEV_F_ENV" "$DEV_F_PATH" "$DEV_F_INT"; do
+    if [ -f "$DEV_SHELL/$f" ]; then ok "$f ($(wc -l < "$DEV_SHELL/$f" | tr -d ' ') lines)"
+    else warn "$f missing — run: dev install shellwiring"; fi
   done
-  for f in zshenv zprofile zshrc; do
-    grep -q '>>> devenv >>>' "$HOME/.$f" 2>/dev/null && ok ".$f wired" || warn ".$f not wired"
+  for row in $(shellwire_plan); do
+    f="${row%%:*}"
+    grep -q '>>> devenv >>>' "$HOME/$f" 2>/dev/null && ok "$f wired" || warn "$f not wired"
+  done
+  # A stale block from the other family keeps sourcing files regen_shell no
+  # longer writes. Silent until something it exported goes missing.
+  for f in $(shellwire_all_dotfiles); do
+    case "$(shellwire_plan)" in *"$f:"*) continue ;; esac
+    grep -q '>>> devenv >>>' "$HOME/$f" 2>/dev/null &&
+      warn "$f carries a devenv block but the login shell is $DEV_SHELL_KIND — stale, remove it"
   done
 
   if [ "$DEV_PLATFORM" = darwin ]; then

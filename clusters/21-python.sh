@@ -6,7 +6,7 @@ item name=python-runtimes \
   check='uv python list --only-installed 2>/dev/null | grep -q 3.12' \
   version='uv --version' method=uv \
   home='~/.local/share/uv/python:2 interpreters ~200MB' \
-  shell='env.zsh:TOKENIZERS_PARALLELISM, PYTORCH_ENABLE_MPS_FALLBACK' \
+  shell="$DEV_F_ENV"':TOKENIZERS_PARALLELISM, PYTORCH_ENABLE_MPS_FALLBACK' \
   network='python-build-standalone releases, via uv' system='' apps='' receipt='' \
   purge='rm -rf "$HOME/.local/share/uv/python"' \
   manual='uv python install 3.12 3.13' \
@@ -47,7 +47,7 @@ item name=huggingface \
   check='command -v hf >/dev/null && grep -q "HF_XET_HIGH_PERFORMANCE" "$DEV_SHELL/env.zsh" 2>/dev/null && grep -q "unset HF_HUB_ENABLE_HF_TRANSFER" "$DEV_SHELL/env.zsh" 2>/dev/null' \
   version='hf version' method=uv \
   home='~/.local/share/uv/tools/huggingface-hub:isolated CLI/library environment|~/.cache/huggingface:models, datasets, Hub and Xet caches (can grow very large)' \
-  shell='env.zsh:HF_HOME and HF_XET_HIGH_PERFORMANCE' \
+  shell="$DEV_F_ENV"':HF_HOME and HF_XET_HIGH_PERFORMANCE' \
   network='pypi.org; huggingface.co Hub, model, dataset, Space, and Jobs APIs' \
   system='' apps='' receipt='' \
   purge='uv tool uninstall huggingface-hub; rm -rf "$HOME/.cache/huggingface"' \

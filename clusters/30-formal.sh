@@ -31,7 +31,7 @@ item name=lean \
   desc="Lean 4 via elan — theorem prover and its toolchain manager" \
   check='command -v lean' version='lean --version' method=script \
   home='~/.elan:toolchains ~2GB' \
-  shell='path.zsh:$HOME/.elan/bin' \
+  shell="$DEV_F_PATH"':$HOME/.elan/bin' \
   network='raw.githubusercontent.com/leanprover/elan' system='' apps='' receipt='' \
   purge='elan self uninstall -y 2>/dev/null || rm -rf "$HOME/.elan"' \
   manual='curl -fsSL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y' \
@@ -62,7 +62,7 @@ item name=alloy \
   desc="Alloy 6 — relational model finder (jar; needs the JVM)" \
   check='[ -f "$HOME/.local/opt/jars/alloy.jar" ]' version='' method=manual \
   home='~/.local/opt/jars/alloy.jar:~40MB' \
-  shell='interactive.zsh:alias alloy' \
+  shell="$DEV_F_INT"':alias alloy' \
   network='github.com/AlloyTools/org.alloytools.alloy releases' system='' apps='' receipt='' \
   purge='rm -f "$HOME/.local/opt/jars/alloy.jar"' \
   manual='Download the jar from https://alloytools.org/download.html into ~/.local/opt/jars/alloy.jar' \
@@ -82,7 +82,7 @@ item name=tlaplus \
   desc="TLA+ tools (tla2tools.jar) — TLC model checker" \
   check='[ -f "$HOME/.local/opt/jars/tla2tools.jar" ]' version='' method=manual \
   home='~/.local/opt/jars/tla2tools.jar:~10MB' \
-  shell='interactive.zsh:alias tlc' \
+  shell="$DEV_F_INT"':alias tlc' \
   network='github.com/tlaplus/tlaplus releases' system='' apps='' receipt='' \
   purge='rm -f "$HOME/.local/opt/jars/tla2tools.jar"' \
   manual='curl -fsSL -o ~/.local/opt/jars/tla2tools.jar https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar' \

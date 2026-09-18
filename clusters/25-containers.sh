@@ -7,7 +7,7 @@ item name=docker \
   check='[ -x "/Applications/Docker.app/Contents/Resources/bin/docker" ]' \
   version='"/Applications/Docker.app/Contents/Resources/bin/docker" --version' method=dmg \
   home='~/.docker:CLI config and registry credentials|~/Library/Containers/com.docker.docker:VM disk, images, volumes, and cache (can grow very large)|~/Library/Group Containers/group.com.docker:Desktop settings' \
-  shell='path.zsh:/Applications/Docker.app/Contents/Resources/bin' \
+  shell="$DEV_F_PATH"':/Applications/Docker.app/Contents/Resources/bin' \
   network='desktop.docker.com; Docker Hub and configured registries at runtime' \
   system='/Library/PrivilegedHelperTools/com.docker.vmnetd:optional privileged-port helper|/Library/LaunchDaemons/com.docker.vmnetd.plist:optional LaunchDaemon' \
   apps='/Applications/Docker.app:~2GB plus VM data' \

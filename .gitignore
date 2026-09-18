@@ -3,6 +3,7 @@ state/registry.tsv
 state/shellents.tsv
 state/logs/
 shell/*.zsh
+shell/*.sh
 
 # keep these tracked
 !state/deferred.tsv
