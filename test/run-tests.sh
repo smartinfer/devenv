@@ -204,6 +204,17 @@ group "8. CLI surface (no writes, no network)"
 run_dev() { ( cd "$PKG" && DEVENV_STATE="$SANDBOX/state2" DEVENV_PREFIX="$SANDBOX/local" \
               ./dev "$@" --no-color 2>&1 ); }
 
+# Render a card against a fresh item registry for the requested platform.
+# The main test process intentionally loads only items supported by its host,
+# so macOS-only cards are otherwise absent when this suite runs on Linux/WSL.
+platform_footprint_card() { (
+  DEV_PLATFORM="$1"
+  ITEM_NAMES=(); ITEM_DATA=(); ITEM_CLUSTER=(); CLUSTER_LIST=""; CURRENT_CLUSTER=""
+  load_clusters
+  item_exists "$2" || return 1
+  footprint_card "$2" missing 2>&1
+); }
+
 assert_has "$(run_dev help)"     "PER-ITEM PROMPT" "dev help renders"
 assert_has "$(run_dev help)"     "--retry-deferred" "help documents --retry-deferred"
 assert_has "$(run_dev clusters)" "20-systems"      "dev clusters lists clusters"
@@ -215,12 +226,13 @@ assert_has "$(run_dev status --commands)" "dev install" "status --commands emits
 RCARD=$(footprint_card rust missing 2>&1)
 assert_has "$RCARD" "PURGE"        "footprint card shows the purge line"
 assert_has "$RCARD" "sh.rustup.rs" "footprint card discloses the network source"
-# Render the card directly. Going through `dev plan` made this depend on
-# whether the item happened to be installed — plan skips items already ok.
-CARD=$(footprint_card clt missing 2>&1)
+# Render these macOS cards from an isolated Darwin registry. Going through
+# `dev plan` would depend on whether the item is installed, while using the
+# host registry would omit these items entirely on Linux/WSL.
+CARD=$(platform_footprint_card darwin clt)
 assert_has "$CARD" "needs sudo"   "SYSTEM footprints are flagged as needing sudo"
 assert_has "$CARD" "CommandLineTools" "SYSTEM paths are disclosed"
-CARD2=$(footprint_card vscode missing 2>&1)
+CARD2=$(platform_footprint_card darwin vscode)
 assert_has "$CARD2" "Applications"    "APPS footprints are disclosed"
 assert_has "$CARD2" "PURGE"           "every card shows its purge command"
 assert_has "$(run_dev --version)" "dev "           "dev --version works"
