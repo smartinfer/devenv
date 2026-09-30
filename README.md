@@ -551,3 +551,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+### Managed Python and Bash startup
+
+`dev install python-runtimes` exposes uv-managed Python 3.12 as `python` and
+`python3` in `~/.local/bin`; Python 3.13 remains available as `python3.13`.
+`dev install shellwiring` sources the generated environment from Bash login
+startup and before the interactive guard in `.bashrc`, as well as the existing
+zsh startup files. The shared PATH exposes standalone uv tools such as `hf`.
+Existing processes need to reload the environment or restart.
+
+Python libraries stay isolated per project. Create a project environment with
+`uv venv --python 3.12 .venv` and install its dependencies with
+`uv pip install --python .venv/bin/python -e .`. Activating `.venv` selects its
+Python for shell commands; applications can select `.venv/bin/python` explicitly.
+A global `hf` command does not install `huggingface_hub` into every interpreter.

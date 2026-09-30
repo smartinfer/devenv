@@ -3,18 +3,20 @@ cluster 21-python
 
 item name=python-runtimes \
   desc="CPython 3.12 and 3.13 managed by uv — never the OS-owned /usr/bin/python3" \
-  check='uv python list --only-installed 2>/dev/null | grep -q 3.12' \
+  check='uv python list --only-installed 2>/dev/null | grep -q 3.12 && [ "$(command -v python3)" = "$LOCAL_BIN/python3" ] && python3 -c "import sys; sys.exit(sys.version_info[:2] != (3, 12))"' \
   version='uv --version' method=uv \
   home='~/.local/share/uv/python:2 interpreters ~200MB' \
   shell='env.zsh:TOKENIZERS_PARALLELISM, PYTORCH_ENABLE_MPS_FALLBACK' \
   network='python-build-standalone releases, via uv' system='' apps='' receipt='' \
   purge='rm -rf "$HOME/.local/share/uv/python"' \
-  manual='uv python install 3.12 3.13' \
+  manual='uv python install 3.12 --default; uv python install 3.13' \
   install=install_python_runtimes
 
 install_python_runtimes() {
   have uv || { err "uv missing — run: dev install uv"; return 1; }
-  run uv python install 3.12 3.13 || return 1
+  run uv python install 3.12 --default || return 1
+  run uv python install 3.13 || return 1
+  shellent_add python-runtimes path "$LOCAL_BIN"
   shellent_add python-runtimes env 'export TOKENIZERS_PARALLELISM=false'
   [ "$DEV_PLATFORM" = darwin ] && shellent_add python-runtimes env 'export PYTORCH_ENABLE_MPS_FALLBACK=1'
   regen_shell

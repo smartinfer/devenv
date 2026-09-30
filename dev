@@ -244,7 +244,7 @@ cmd_clean_install() {
 # ---------------------------------------------------------------------------
 devenv_unwire_shell() {
   local f
-  for f in .zshenv .zprofile .zshrc; do
+  for f in .zshenv .zprofile .zshrc .bashrc .profile .bash_profile; do
     [ -f "$HOME/$f" ] || continue
     local t; t=$(mktemp)
     awk '/# >>> devenv >>>/{s=1} !s{print} /# <<< devenv <<</{s=0}' "$HOME/$f" > "$t" && mv "$t" "$HOME/$f"
