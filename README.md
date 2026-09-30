@@ -332,6 +332,87 @@ Per-project venvs are correct, not chaos. uv hardlinks from one content-addresse
 
 ---
 
+## Windows users: WSL 2, Ubuntu 24.04, and NVIDIA
+
+The supported Windows setup is currently:
+
+- Windows 11, or Windows 10 version 21H2 or newer
+- WSL 2 (the `2` is the WSL generation, not the Ubuntu version)
+- Ubuntu 24.04
+- A current Windows NVIDIA driver with WSL/CUDA support
+- A vLLM-compatible NVIDIA GPU (compute capability 7.5 or newer)
+
+Run these checks from **Windows PowerShell**, not from Ubuntu:
+
+```powershell
+wsl --version
+wsl --list --verbose
+nvidia-smi
+```
+
+The distribution should appear with version `2`, for example:
+
+```text
+  NAME             STATE      VERSION
+* Ubuntu-24.04     Running    2
+```
+
+If it is version 1, use the exact distribution name printed by the list:
+
+```powershell
+wsl --set-version "Ubuntu-24.04" 2
+```
+
+Update WSL and completely stop its VM before testing GPU access:
+
+```powershell
+wsl --update
+wsl --shutdown
+```
+
+When a full Windows restart is required, save open work and run:
+
+```powershell
+shutdown /r /t 0
+```
+
+After Windows restarts, open Ubuntu and verify the WSL GPU device and the
+Windows-provided NVIDIA utility:
+
+```bash
+ls -l /dev/dxg
+/usr/lib/wsl/lib/nvidia-smi
+```
+
+Both must work before installing vLLM. `devenv` detects the canonical
+`/usr/lib/wsl/lib/nvidia-smi` location and adds `/usr/lib/wsl/lib` to its
+generated shell PATH. If `nvidia-smi` reports `GPU access blocked by the
+operating system`, update WSL and the **Windows** NVIDIA driver, run
+`wsl --shutdown`, and restart Windows. A missing `/dev/dxg` means the GPU has
+not been projected into the WSL VM.
+
+Never install `nvidia-driver`, `cuda-drivers`, or another Linux display driver
+inside WSL. The GPU driver is owned by Windows and projected into Ubuntu.
+Installing a Linux driver can replace or conflict with the WSL libraries. The
+vLLM item installs its compatible PyTorch and CUDA user-space dependencies in
+`~/.local/opt/vllm`; it does not modify the host driver.
+
+Once `/usr/lib/wsl/lib/nvidia-smi` succeeds:
+
+```bash
+./dev install vllm-inference --verbose
+./dev check ml-inf
+local-llm status
+```
+
+Expected readiness includes `vllm installed`, `nvidia ready`, and `selected
+vllm`. Microsoft documents the WSL GPU prerequisites in its
+[CUDA on WSL guide](https://learn.microsoft.com/windows/ai/directml/gpu-cuda-in-wsl),
+and NVIDIA documents the driver boundary and WSL limitations in its
+[CUDA on WSL user guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html).
+
+---
+
 ## Local inference
 
 Install the cross-platform local-inference pack with:
