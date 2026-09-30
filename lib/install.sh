@@ -15,6 +15,19 @@ gh_asset_url() {
     | head -1
 }
 
+# Some projects publish a stable release containing only a pointer to a newer
+# build release. Search recent releases when the install intentionally tracks
+# those prebuilt artifacts (llama.cpp does this).
+gh_recent_asset_url() {
+  local repo="$1" pat="$2"
+  curl -fsSL "https://api.github.com/repos/$repo/releases?per_page=20" 2>/dev/null \
+    | grep -o '"browser_download_url": *"[^"]*"' \
+    | sed 's/.*"\(https[^"]*\)"/\1/' \
+    | grep -iE -- "$pat" \
+    | grep -viE '\.(pem|sig|asc|sbom|json|txt|sha256|sha512|md5)$' \
+    | head -1
+}
+
 unpack_into() {  # unpack_into <file> <destdir>
   local f="$1" d="$2"; mkdir -p "$d"
   # Sniff the content. Switching on the filename broke every download, because

@@ -22,11 +22,11 @@ install_python_runtimes() {
 }
 
 item name=python-tools \
-  desc="Global Python CLIs in isolated uv-managed environments; MLX tooling is macOS-only" \
+  desc="Global Python CLIs in isolated uv-managed environments" \
   check='command -v ruff >/dev/null && command -v ipython' version='ruff --version' method=uv \
   home='~/.local/share/uv/tools:one venv per tool|~/.local/bin:shims' shell='' \
   network='pypi.org' system='' apps='' receipt='' \
-  purge='for t in ruff mypy ipython pre-commit jupyterlab httpie mlx-lm; do uv tool uninstall "$t" 2>/dev/null; done' \
+  purge='for t in ruff mypy ipython pre-commit jupyterlab httpie; do uv tool uninstall "$t" 2>/dev/null; done' \
   manual='uv tool install ruff; uv tool install mypy; uv tool install ipython' \
   install=install_python_tools
 
@@ -36,9 +36,6 @@ install_python_tools() {
   for t in ruff mypy ipython pre-commit jupyterlab httpie; do
     run uv tool install --python 3.12 "$t" || warn "uv tool $t failed"
   done
-  if [ "$DEV_PLATFORM" = darwin ]; then
-    run uv tool install --python 3.12 mlx-lm || warn "mlx-lm failed"
-  fi
   return 0
 }
 

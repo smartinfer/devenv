@@ -289,6 +289,7 @@ Numbered so dependency order is visible in the filename.
 | 41 | `editors` | VS Code, Cursor |
 | 45 | `cloud` | Google Cloud CLI (`gcloud`, `bq`, `gsutil`) |
 | 50 | `web` | FrankenPHP, Composer, Caddy |
+| 60 | `ml-inf` | Local inference: MLX-LM on Apple, vLLM on Linux/NVIDIA, llama.cpp fallback |
 | 60 | `ml` | No installs — MLX GPU verification |
 | 70 | `latex` | **Verify only** — never installs or modifies TeX |
 
@@ -299,6 +300,7 @@ Suggested order for a fresh machine:
 ./dev install 40-agents 41-editors
 ./dev install 20-systems 30-formal
 ./dev install 25-containers 45-cloud
+./dev install ml-inf
 ./dev install 50-web 70-latex
 ./dev install 22-functional 23-scientific 24-symbolic
 ./dev status
@@ -330,7 +332,32 @@ Per-project venvs are correct, not chaos. uv hardlinks from one content-addresse
 
 ---
 
-## Local ML on Apple silicon
+## Local inference
+
+Install the cross-platform local-inference pack with:
+
+```bash
+./dev plan ml-inf
+./dev install ml-inf
+./dev check ml-inf       # installed, missing, failed, or deferred per component
+./dev registry           # successful installs recorded by devenv
+local-llm status         # backend and GPU readiness
+```
+
+The pack installs MLX-LM on Apple Silicon, vLLM on Linux when an NVIDIA GPU
+is visible, and llama.cpp as the portable GGUF fallback. It never downloads a
+model or starts a background service automatically. Start an explicitly chosen
+model with `local-llm serve MODEL`; the API listens on port 8000 by default.
+
+On WSL, the NVIDIA driver belongs to Windows. The vLLM installer checks
+`nvidia-smi`, including WSL's canonical `/usr/lib/wsl/lib/nvidia-smi` location,
+and adds `/usr/lib/wsl/lib` to the generated shell PATH when needed. It will stop
+with a diagnostic rather than installing or replacing the Linux GPU driver.
+vLLM owns its isolated PyTorch environment under
+`~/.local/opt/vllm`; project PyTorch and JAX dependencies still belong in each
+project's own uv environment.
+
+### Apple silicon notes
 
 MLX is the only framework that uses the M5 GPU Neural Accelerators, and only on **macOS 26.2 or later**. Below that you keep the memory-bandwidth gain but lose the roughly 4× prefill speedup. `dev install mlx-check` verifies this and warns if your OS is too old.
 

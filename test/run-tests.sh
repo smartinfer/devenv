@@ -27,7 +27,7 @@ assert_has()  { case "$1" in *"$2"*) t_ok "$3" ;; *) t_bad "$3" "missing '$2'" ;
 # ---------------------------------------------------------------------------
 group "1. Syntax"
 # ---------------------------------------------------------------------------
-for f in "$PKG/dev" "$PKG"/lib/*.sh "$PKG"/clusters/*.sh "$PKG"/test/*.sh; do
+for f in "$PKG/dev" "$PKG/local-llm" "$PKG"/lib/*.sh "$PKG"/clusters/*.sh "$PKG"/test/*.sh; do
   if bash -n "$f" 2>/dev/null; then t_ok "parses: ${f#$PKG/}"
   else t_bad "parses: ${f#$PKG/}" "$(bash -n "$f" 2>&1 | head -2)"; fi
 done
@@ -40,7 +40,7 @@ group "2. Bash 3.2 compatibility (macOS ships bash 3.2)"
 # is why the naive `grep -rn ... | grep -v '^#'` version silently passed).
 check_forbidden() {
   local pat="$1" desc="$2" f hits=""
-  for f in "$PKG/dev" "$PKG"/lib/*.sh "$PKG"/clusters/*.sh; do
+  for f in "$PKG/dev" "$PKG/local-llm" "$PKG"/lib/*.sh "$PKG"/clusters/*.sh; do
     local h
     h=$(sed 's/#.*$//' "$f" | grep -nE "$pat" | head -2)
     [ -n "$h" ] && hits="$hits${f#$PKG/}: $h
@@ -219,6 +219,7 @@ assert_has "$(run_dev help)"     "PER-ITEM PROMPT" "dev help renders"
 assert_has "$(run_dev help)"     "--retry-deferred" "help documents --retry-deferred"
 assert_has "$(run_dev clusters)" "20-systems"      "dev clusters lists clusters"
 assert_has "$(run_dev clusters)" "rust"            "dev clusters lists items"
+assert_has "$(run_dev clusters)" "60-ml-inf"       "dev clusters lists the inference pack"
 assert_has "$(run_dev status)"   "CLUSTER"         "dev status renders a table"
 assert_has "$(run_dev status --commands)" "dev install" "status --commands emits commands"
 # Render directly rather than through `dev plan`: plan skips items that are
@@ -280,9 +281,24 @@ assert_not "printf '%s' \"\$LINUX_CLUSTERS\" | grep -q 'Visual Studio Code (arm6
            "Linux excludes macOS editor installers"
 assert_not "printf '%s' \"\$LINUX_CLUSTERS\" | grep -q 'MLX runs on the GPU'" \
            "Linux excludes Apple-only MLX checks"
+assert_has "$LINUX_CLUSTERS" "vllm-inference" "Linux includes the vLLM inference backend"
+assert_not "printf '%s' \"\$LINUX_CLUSTERS\" | grep -q 'mlx-inference'" \
+           "Linux excludes the Apple inference backend"
+LINUX_ML_PLAN=$(run_linux_dev plan ml-inf)
+assert_has "$LINUX_ML_PLAN" "vLLM" "ml-inf resolves to the Linux inference pack"
+assert_has "$LINUX_ML_PLAN" "llama.cpp" "ml-inf includes a portable fallback"
 LINUX_PLAN=$(run_linux_dev plan build-tools)
 assert_has "$LINUX_PLAN" "apt" "Linux base plan discloses apt"
 assert_has "$LINUX_PLAN" "needs sudo" "Linux system packages require approval"
+
+group "8g. Local inference status is explicit"
+LLM_STATUS=$(DEVENV_PREFIX="$SANDBOX/local" "$PKG/local-llm" status 2>&1 || true)
+assert_has "$LLM_STATUS" "mlx-lm" "local-llm reports the Apple backend"
+assert_has "$LLM_STATUS" "vllm" "local-llm reports the Linux backend"
+assert_has "$LLM_STATUS" "llama.cpp" "local-llm reports the fallback backend"
+assert_has "$LLM_STATUS" "selected" "local-llm reports the selected backend"
+assert_has "$(sed -n '/nvidia_smi_command()/,/^}/p' "$PKG/local-llm")" "/usr/lib/wsl/lib/nvidia-smi" \
+           "local-llm checks the canonical WSL NVIDIA path"
 
 # ---------------------------------------------------------------------------
 group "9. --yes must not auto-approve SYSTEM or APPS"
