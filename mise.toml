@@ -17,7 +17,8 @@ pnpm  = "latest"
 # Pinned LTS + vendor. NOT "latest": Apalache and Alloy are the only
 # consumers, and they are not tested against every new JDK. You do not
 # write Java here; this is a dependency of the model checkers.
-java  = "temurin-21"
+# 2026-10: pinned to 17 for Alloy 6.2.0 (Machina Implementation 2).
+java  = "temurin-17"
 
 # Optional, uncomment if you want them:
 # deno = "latest"
