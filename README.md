@@ -46,7 +46,7 @@ Homebrew is excellent when the goal is to install a large catalog of software wi
 | Concern | `devenv` | General-purpose package manager |
 |---|---|---|
 | Before installation | Shows paths, network sources, shell changes, apps, system files, receipts, and purge command | Usually shows a package name and dependency plan |
-| Runtime ownership | Python belongs to uv, Rust to rustup, Node/Go/JVM to mise, and so on | May install parallel runtimes into a shared prefix |
+| Runtime ownership | Python belongs to uv, Rust to rustup, Node/Go/JVM/Kotlin to mise, and so on | May install parallel runtimes into a shared prefix |
 | Filesystem layout | Tool-specific directories, primarily under `$HOME` | Shared manager-controlled prefix and dependency tree |
 | Shell integration | Generates auditable zsh files with macOS startup order handled explicitly | Adds a shared prefix or manager hook to PATH |
 | Removal | Records each tool's roots and exact purge operation | Removes managed packages; user state and native-manager files may remain |
@@ -277,6 +277,7 @@ Numbered so dependency order is visible in the filename.
 | # | Cluster | Contents |
 |---|---|---|
 | 00 | `base` | Command Line Tools, shell wiring |
+| 05 | `terminal-macos` | Ghostty, managed light/dark theme, dependency-free Zsh prompt |
 | 10 | `managers` | mise (runtimes), uv (Python) |
 | 20 | `systems` | Rust, Ninja, CMake |
 | 21 | `python` | CPython 3.12/3.13, global CLIs, Hugging Face Hub |
@@ -289,6 +290,7 @@ Numbered so dependency order is visible in the filename.
 | 41 | `editors` | VS Code, Cursor |
 | 45 | `cloud` | Google Cloud CLI (`gcloud`, `bq`, `gsutil`) |
 | 50 | `web` | FrankenPHP, Composer, Caddy |
+| 55 | `mobile-dev` | Kotlin CLI, Android Studio/SDK/emulator, Xcode/Swift/iOS Simulator |
 | 60 | `ml-inf` | Local inference: MLX-LM on Apple, vLLM on Linux/NVIDIA, llama.cpp fallback |
 | 60 | `ml` | No installs — MLX GPU verification |
 | 70 | `latex` | **Verify only** — never installs or modifies TeX |
@@ -297,9 +299,11 @@ Suggested order for a fresh machine:
 
 ```bash
 ./dev install 00-base 10-managers 21-python
+./dev install 05-terminal-macos
 ./dev install 40-agents 41-editors
 ./dev install 20-systems 30-formal
 ./dev install 25-containers 45-cloud
+./dev install 55-mobile-dev
 ./dev install ml-inf
 ./dev install 50-web 70-latex
 ./dev install 22-functional 23-scientific 24-symbolic
@@ -323,6 +327,8 @@ Per-project venvs are correct, not chaos. uv hardlinks from one content-addresse
 **SBCL comes from a prebuilt tarball, not mise.** mise's SBCL plugin compiles from source, bootstraps via ECL on macOS, and needs zstd with `CPATH`/`LIBRARY_PATH` set — which on a Mac means a package manager. Its own README recommends against it.
 
 **Java survives only as a dependency.** Apalache, Alloy, and TLA+ are JVM tools, and Quint's model checker *is* Apalache. mise installs a pinned Temurin LTS into one directory; you never write Java.
+
+**Mobile readiness is more than a compiler.** mise provides the standalone Kotlin compiler, while Android projects use their checked-in Gradle wrapper and Android Studio manages the SDK, emulator, and device images. Apple's Command Line Tools provide Swift for command-line and macOS work; building and testing iOS apps additionally requires full Xcode plus an installed iOS Simulator runtime. The large, licensed GUI/SDK downloads remain explicit manual steps.
 
 **PHP is FrankenPHP.** macOS stopped bundling PHP in Monterey. FrankenPHP is a single static binary containing the runtime and a web server — no extension hell, deletable in one `rm`.
 
@@ -480,6 +486,7 @@ devenv/
 │   ├── ui.sh             footprint cards, prompts, tables
 │   └── install.sh        reusable installers (gh release, tarball, script)
 ├── clusters/*.sh         one file per cluster; declarative item definitions
+├── terminal/             tracked Ghostty configuration and Zsh prompt
 ├── shell/                GENERATED — env.zsh, path.zsh, interactive.zsh
 ├── state/                GENERATED — registry.tsv, deferred.tsv, logs/
 ├── test/run-tests.sh     hermetic self-tests

@@ -13,6 +13,7 @@
 node  = "22"              # Quint, Gemini CLI, all web tooling
 go    = "1.23"
 pnpm  = "latest"
+kotlin = "latest"         # CLI compiler; Android projects use their Gradle wrapper
 
 # Pinned LTS + vendor. NOT "latest": Apalache and Alloy are the only
 # consumers, and they are not tested against every new JDK. You do not

@@ -2,7 +2,7 @@
 cluster 10-managers
 
 item name=mise \
-  desc="mise — declarative runtime manager for node, go, and the JVM" \
+  desc="mise — declarative runtime manager for Node, Go, Java, and Kotlin" \
   check='command -v mise' version='mise --version' method=script \
   home="~/.local/bin/mise:binary|~/.local/share/mise:runtimes ~600MB|~/.config/mise:symlink to config|$DEV_CONFIG_DIR:your mise.toml" \
   shell='interactive.zsh:eval mise activate zsh' \
