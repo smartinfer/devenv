@@ -151,7 +151,7 @@ Every item shows its complete footprint before you decide. Six categories, and o
 
 `SHELL` never names your dotfiles directly. Everything writes into generated files inside this repository's `shell/` directory; your dotfiles are touched exactly once, during `00-base`, and that prompt shows the added lines verbatim first.
 
-**Which dotfiles depends on your login shell** — see [Shell families](#shell-families-zsh-and-bash). On macOS and for a zsh login it is `.zshenv`, `.zprofile`, and `.zshrc`; for a bash login on Linux it is `.profile` (or an existing `.bash_profile`) and `.bashrc`. Nothing ever creates `.bash_profile`, which would shadow the `.profile` chain Debian-family systems rely on.
+**Which dotfiles depends on your login shell** — see [Shell families](#shell-families-zsh-and-bash). On macOS and for a zsh login it is `.zshenv`, `.zprofile`, and `.zshrc`; for a bash login on Linux it is `.profile` (or an existing `.bash_profile`) and `.bashrc`. Missing files are created. Nothing ever creates `.bash_profile`, which would shadow the `.profile` chain Debian-family systems rely on.
 
 `--yes` skips prompts but **refuses to auto-approve any item with a SYSTEM or APPS footprint.** Those always ask.
 
@@ -250,7 +250,7 @@ The generated files follow the **login shell**, not the platform. Wiring the wro
 
 macOS is pinned to zsh regardless of `$SHELL`: it is the system default there, and the whole `path_helper` ordering above only makes sense for zsh. On Linux the passwd entry decides. Override with `DEVENV_SHELL_KIND=zsh|bash` if you need to.
 
-**Why bash needs a different map.** Bash has no `.zshenv` — no file it reads for *every* shell, including non-interactive ones. The closest equivalent is `.profile`, which the desktop session and `ssh` logins read once, so everything spawned from that session inherits the environment. `.bashrc` then repeats `env.sh` for non-login shells and adds the hooks. The `env.sh` block goes at the *top* of `.bashrc`, before the `case $- in *i*)` guard Debian and Ubuntu ship, so non-interactive bash (coding agents, `bash -c`) still gets the environment; the `interactive.sh` block goes at the end, after your own setup. Repeating is safe by construction: env entries are plain exports, and `path.sh` removes an entry before prepending it.
+**Why bash needs a different map.** Bash has no `.zshenv` — no file it reads for *every* shell, including non-interactive ones. The closest equivalent is `.profile`, which the desktop session and `ssh` logins read once, so everything spawned from that session inherits the environment. `.bashrc` then repeats `env.sh` for non-login shells and adds the hooks. The `env.sh` block goes at the *top* of `.bashrc`, before the `case $- in *i*)` guard Debian and Ubuntu ship, so non-interactive bash (coding agents, `bash -c`) still gets the environment; the `interactive.sh` block goes at the end, after your own setup. A bash login reads only `.profile`; Ubuntu's stock one loads `.bashrc`, but if yours does not — or there was none and devenv created it — the devenv block adds that one line, so a WSL or `ssh` login still gets the hooks. Repeating is safe by construction: env entries are plain exports, and `path.sh` removes an entry before prepending it.
 
 Everything reachable from `.profile` stays **POSIX** — `.` rather than `source`, no bashisms — because dash reads `.profile` on an `sh` login. The test suite executes the generated `env.sh` under `sh` to enforce this.
 

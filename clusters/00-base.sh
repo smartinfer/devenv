@@ -71,6 +71,14 @@ install_shellwiring() {
 "
       fi
     done
+    # A bash login reads only ~/.profile (or ~/.bash_profile). Ubuntu's stock
+    # .profile chains to .bashrc, but one devenv just created — or a minimal
+    # one — does not, and then a WSL or ssh login never loads the hooks.
+    if [ "$DEV_SHELL_KIND" = bash ] && [ "$f" = "$(bash_login_file)" ] &&
+       ! grep -q '\.bashrc' "$HOME/$f" 2>/dev/null; then
+      block="${block}if [ -n \"\$BASH_VERSION\" ] && [ -f \"\$HOME/.bashrc\" ]; then . \"\$HOME/.bashrc\"; fi
+"
+    fi
     if [ -n "$early" ]; then
       tmp=$(mktemp)
       printf '%s\n%s%s\n' "$m" "$early" "$e" > "$tmp"

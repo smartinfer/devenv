@@ -337,7 +337,10 @@ group "8g. Shell wiring follows the login shell"
 # family is silent: the installs succeed and nothing lands on PATH.
 run_kind_dev() {  # <zsh|bash> <args...>
   local kind="$1"; shift
-  ( cd "$PKG" && DEVENV_SHELL_KIND="$kind" \
+  # A sandboxed HOME: plan skips items that are already installed, so the
+  # real dotfiles being wired would hide the shellwiring card.
+  mkdir -p "$SANDBOX/kind-$kind-home"
+  ( cd "$PKG" && HOME="$SANDBOX/kind-$kind-home" DEVENV_SHELL_KIND="$kind" \
       DEVENV_STATE="$SANDBOX/kind-$kind-state" DEVENV_PREFIX="$SANDBOX/kind-$kind-local" \
       ./dev "$@" --no-color 2>&1 )
 }
@@ -365,6 +368,7 @@ wire_phase() {  # <kind>
   local kind="$1"
   local h="$SANDBOX/home-$kind"
   rm -rf "$h"; mkdir -p "$h"
+  [ -n "${SEED_PROFILE:-}" ] && printf '%s\n' "$SEED_PROFILE" > "$h/.profile"
   ( HOME="$h" DEVENV_SHELL_KIND="$kind" DEV_ROOT="$PKG" \
     DEVENV_STATE="$SANDBOX/wire-$kind" DEVENV_PREFIX="$h/.local" \
     bash -c '
@@ -386,6 +390,18 @@ assert "[ -f '$SANDBOX/home-bash/shellout/env.sh' ]"    "bash install generates 
 assert_has "$(cat "$SANDBOX/home-bash/.bashrc")" "interactive.sh" "bash .bashrc sources the hooks file"
 # .profile may be read by dash on an sh login, so the block must be POSIX.
 assert_not "grep -qE '^\s*source ' '$SANDBOX/home-bash/.profile'" "bash wiring uses POSIX '.' not 'source'"
+
+# With no ~/.profile to start from, the one devenv creates must chain to
+# .bashrc, or a login shell (what WSL and ssh open) never loads the hooks.
+assert_has "$(cat "$SANDBOX/home-bash/.profile")" '. "$HOME/.bashrc"' "a created ~/.profile chains to ~/.bashrc"
+echo 'echo BASHRC_RAN' >> "$SANDBOX/home-bash/.bashrc"
+assert_has "$(env -i HOME="$SANDBOX/home-bash" TERM=dumb bash -l -c true 2>/dev/null)" "BASHRC_RAN" \
+           "a bash login shell reaches ~/.bashrc"
+assert "cd '$SANDBOX/home-bash' && env -i HOME='$SANDBOX/home-bash' sh -c '. ./.profile' >/dev/null 2>&1" \
+       "the created ~/.profile runs cleanly under sh"
+SEED_PROFILE='if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi' wire_phase bash
+assert_eq "$(grep -c '\.bashrc' "$SANDBOX/home-bash/.profile")" "1" \
+          "an existing ~/.profile that loads ~/.bashrc is not chained twice"
 
 wire_phase bash unwire
 assert_not "grep -q 'devenv' '$SANDBOX/home-bash/.profile'" "unwire cleans ~/.profile"
