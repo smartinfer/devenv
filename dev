@@ -73,6 +73,16 @@ PER-ITEM PROMPT
   [d]etails   method, check expression, manual instructions, alternatives
   [q]uit      stop here
 
+UPDATE PROMPT
+  [u]pdate    run the item's update command now
+  [s]kip      leave this item at its current version
+  [q]uit      stop here
+
+  Shows the current version, network source, and exact command first.
+  Only installed items with an update= method are offered; the rest are
+  skipped, never purged. `dev install` leaves installed items alone, and
+  `dev clean-install` can delete config and credentials — use update.
+
 FILES
   Generated shell files follow the login shell — run `dev platform` to see
   which family is active, and `dev doctor` for what is wired where.

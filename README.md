@@ -172,6 +172,42 @@ Skipping is sticky by design. A skipped item is not re-offered on the next `dev 
 
 ---
 
+## Updating
+
+`dev install` leaves an installed item alone, and `dev clean-install` purges it first — which for an agent means deleting its login, config, and session history. To upgrade in place, use `dev update`:
+
+```
+dev update                   every installed item that has an update method
+dev update codex uv          just these
+dev update agents --dry-run  show what would run, run nothing
+```
+
+Each item is disclosed before anything runs:
+
+```
+==> codex
+    current : 0.158.0
+    network : https://chatgpt.com/codex/install.sh
+    command : install_via_script "https://chatgpt.com/codex/install.sh"
+  [u]pdate  [s]kip  [q]uit →
+```
+
+Afterwards the item's check runs again and the old → new version is reported. `--yes` skips the prompt, with the same SYSTEM/APPS exception as install.
+
+Updates come from each tool's own mechanism, declared per item with `update=`:
+
+| Item | Update command |
+|---|---|
+| `claude-code` | `claude update` |
+| `codex` | re-runs the standalone installer |
+| `gemini-cli` | `npm install -g @google/gemini-cli@latest` |
+| `rust` | `rustup update` |
+| `uv` | `uv self update` |
+
+Items without an `update=` method are skipped and never purged. If you name one explicitly, `dev update` points you at its manual route instead. Items that are not installed are skipped with a `dev install` hint.
+
+---
+
 ## The PATH problem on macOS, and why it's `.zprofile`
 
 macOS has `/etc/paths.d`, and it is the wrong tool. `path_helper` **appends** your entries after the system defaults, so `/usr/bin` ends up ahead of `~/.local/bin` and Apple's `/usr/bin/python3` wins. It also needs sudo, lives outside `$HOME`, and can't run the shell hooks that `mise`, `opam`, and `direnv` require.
@@ -427,11 +463,14 @@ item name=foo \
   shell='' network='github.com/x/foo releases' \
   system='' apps='' receipt='' \
   purge='rm -f "$HOME/.local/bin/foo"' \
+  update='install_foo' \
   manual='Download from github.com/x/foo/releases into ~/.local/bin' \
   install=install_foo
 
 install_foo() { install_gh_bin x/foo 'darwin-arm64' foo; }
 ```
+
+`update=` is optional: a shell command that upgrades an installed copy in place without touching its config or credentials. It runs in the same shell as install functions, so it may call a helper you define. Leave it out when the tool has no safe in-place upgrade; `dev update` then skips it instead of reinstalling.
 
 Then run `./test/run-tests.sh` — it checks that every item declares a description, check, method, purge, and a defined install function, and that no purge command targets an absolute root.
 

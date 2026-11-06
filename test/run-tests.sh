@@ -243,6 +243,7 @@ assert_has "$CARD2" "$APPS_MARK"      "APPS/receipt footprints are disclosed"
 assert_has "$CARD2" "PURGE"           "every card shows its purge command"
 assert_has "$(run_dev --version)" "dev "           "dev --version works"
 assert_has "$(run_dev help)"     "update [targets]" "help documents update"
+assert_has "$(run_dev help)"     "UPDATE PROMPT"    "help documents the update prompt"
 # A fake tool on PATH makes ninja "installed" without touching the network.
 mkdir -p "$SANDBOX/fakebin"
 printf '#!/bin/sh\necho 1.0.0\n' > "$SANDBOX/fakebin/ninja"; chmod +x "$SANDBOX/fakebin/ninja"
