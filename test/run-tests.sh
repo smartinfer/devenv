@@ -242,6 +242,17 @@ CARD2=$(footprint_card "$APPS_ITEM" missing 2>&1)
 assert_has "$CARD2" "$APPS_MARK"      "APPS/receipt footprints are disclosed"
 assert_has "$CARD2" "PURGE"           "every card shows its purge command"
 assert_has "$(run_dev --version)" "dev "           "dev --version works"
+assert_has "$(run_dev help)"     "update [targets]" "help documents update"
+# A fake tool on PATH makes ninja "installed" without touching the network.
+mkdir -p "$SANDBOX/fakebin"
+printf '#!/bin/sh\necho 1.0.0\n' > "$SANDBOX/fakebin/ninja"; chmod +x "$SANDBOX/fakebin/ninja"
+assert_has "$(PATH="$SANDBOX/fakebin:$PATH" run_dev update ninja --yes)" "no in-place update method" \
+           "update skips items without an update method"
+assert_not "PATH='$SANDBOX/fakebin:$PATH' run_dev update ninja --yes | grep -q 'Purging'" \
+           "update never purges"
+for n in claude-code codex gemini-cli; do
+  assert "[ -n \"\$(item_get $n update)\" ]" "$n declares an update method"
+done
 assert_not "run_dev bogus-command | grep -q 'unknown command' && false" "unknown command is rejected"
 
 group "8b. Default command is check, not install"

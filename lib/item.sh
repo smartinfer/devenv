@@ -37,6 +37,9 @@ cluster() {
 #   manual    human instructions for installing without this script
 #   alt       an alternative approach, shown in status --commands
 #   install   name of the bash function that performs the install
+#   update    shell command that upgrades an installed copy in place, keeping
+#             config and credentials (optional; `dev update` skips items
+#             without one rather than falling back to purge + install)
 item() {
   local blob="" kv supported="darwin,linux"
   for kv in "$@"; do blob="${blob}${kv}${US}"; done

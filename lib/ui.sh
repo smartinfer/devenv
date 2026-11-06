@@ -84,6 +84,27 @@ prompt_item() {
   done
 }
 
+prompt_update() {
+  local n="$1" ans
+  if [ "$OPT_YES" = "1" ]; then
+    if [ -z "$(item_get "$n" system)" ] && [ -z "$(item_get "$n" apps)" ]; then
+      printf '%s' u; return
+    fi
+    warn "--yes does not auto-approve SYSTEM/APPS footprints; asking."
+  fi
+  while :; do
+    printf "  %s[u]%spdate  %s[s]%skip  %s[q]%suit → " \
+      "$C_B" "$C_R" "$C_B" "$C_R" "$C_B" "$C_R"
+    read -r ans </dev/tty || ans=q
+    case "$ans" in
+      u|U|y|Y|"") printf '%s' u; return ;;
+      s|S)        printf '%s' s; return ;;
+      q|Q)        printf '%s' q; return ;;
+      *) warn "choose u, s or q" ;;
+    esac
+  done
+}
+
 ask_note() {
   local note
   printf '%s' "  why? (enter to skip) -> "

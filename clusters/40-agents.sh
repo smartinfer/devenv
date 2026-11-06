@@ -9,6 +9,7 @@ item name=claude-code \
   purge='rm -rf "$HOME/.local/share/claude" "$HOME/.local/bin/claude" "$HOME/.claude"' \
   manual='curl -fsSL https://claude.ai/install.sh | bash' \
   alt='npm install -g @anthropic-ai/claude-code (legacy; the npm copy shadows the native binary on PATH)' \
+  update='claude update' \
   install=install_claude_code
 install_claude_code() {
   have claude || install_via_script "https://claude.ai/install.sh" || return 1
@@ -27,6 +28,7 @@ item name=codex \
   purge='rm -rf "$HOME/.local/bin/codex" "$HOME/.codex"' \
   manual='curl -fsSL https://chatgpt.com/codex/install.sh | sh' \
   alt='npm install -g @openai/codex — note the scope; the bare "codex" package is unrelated' \
+  update='install_via_script "https://chatgpt.com/codex/install.sh"' \
   install=install_codex
 install_codex() {
   have codex && return 0
@@ -47,6 +49,7 @@ item name=gemini-cli \
   network='registry.npmjs.org' system='' apps='' receipt='' \
   purge='npm uninstall -g @google/gemini-cli; rm -rf "$HOME/.gemini"' \
   manual='npm install -g @google/gemini-cli' \
+  update='npm install -g @google/gemini-cli@latest' \
   alt='npx @google/gemini-cli for one-off use — nothing installed, but it re-resolves from the registry every run' \
   install=install_gemini
 install_gemini() {

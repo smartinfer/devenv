@@ -96,6 +96,8 @@ The test suite is not optional decoration. It verifies bash 3.2 compatibility (m
 dev check [targets]          What's installed, what isn't. The default.
 dev plan [targets]           Full footprint disclosure. No prompts, no writes.
 dev install [targets]        Check, disclose, prompt per item, install.
+dev update [targets]         Upgrade installed items in place; config and
+                             credentials are kept. Never purges.
 dev clean-install <target>   Purge, then install.
 dev status [--commands]      Overview, deferrals, failures, and how to fix them.
 dev purge <item>             Remove one item.

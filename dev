@@ -41,6 +41,9 @@ COMMANDS
   plan [targets]         Full disclosure of what an install would change.
                          No prompts, no writes.
   install [targets]      Check, disclose, prompt per item, then install.
+  update [targets]       Upgrade installed items in place, keeping their
+                         config and credentials. Items without an update
+                         method are skipped, never purged.
   clean-install <target> Purge, then install.
   status [--commands]    Overview + deferred/failed items and how to fix them.
                          --commands prints copy-pasteable install commands.
@@ -236,6 +239,70 @@ cmd_install() {
   inf "installed $n_done · skipped $n_skip · never $n_never · failed $n_fail"
   [ -n "$LOGFILE" ] && dim "log: $LOGFILE"
   [ $n_skip -gt 0 ] && dim "skipped items will not be re-prompted; use --retry-deferred"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# update
+# ---------------------------------------------------------------------------
+cmd_update() {
+  local explicit=0; [ $# -gt 0 ] && explicit=1
+  local names n st cmd before after ans
+  local n_done=0 n_skip=0 n_none=0 n_fail=0
+  names=$(resolve_targets "$@")
+  [ -n "$names" ] || { warn "nothing to update"; return 1; }
+
+  for n in $names; do
+    st=$(item_state "$n")
+    if [ "$st" != "ok" ]; then
+      [ $explicit = 1 ] && warn "$n is not installed ($st) — run: dev install $n"
+      continue
+    fi
+    cmd=$(item_get "$n" update)
+    if [ -z "$cmd" ]; then
+      n_none=$((n_none+1))
+      if [ $explicit = 1 ]; then
+        warn "$n has no in-place update method; use its own manager"
+        local man; man=$(item_get "$n" manual)
+        [ -n "$man" ] && dim "  manual: $man"
+      fi
+      continue
+    fi
+
+    before=$(item_version_str "$n")
+    say "$n"
+    inf "current : $before"
+    inf "network : $(item_get "$n" network)"
+    inf "command : $cmd"
+    ans=$(prompt_update "$n")
+    case "$ans" in
+      q) inf "stopped"; break ;;
+      s) inf "skipped"; n_skip=$((n_skip+1)); continue ;;
+    esac
+    if [ "$OPT_DRYRUN" = "1" ]; then
+      inf "(dry-run) would run: $cmd"; continue
+    fi
+
+    inf "updating…"
+    if runsh "$cmd"; then
+      hash -r 2>/dev/null
+      if eval "$(item_get "$n" check)" >/dev/null 2>&1; then
+        after=$(item_version_str "$n")
+        registry_has "$n" && registry_add "$n"
+        if [ "$before" = "$after" ]; then ok "$n already current ($after)"
+        else ok "$n updated $before → $after"; fi
+        n_done=$((n_done+1))
+      else
+        err "$n update reported success but its check now fails"; n_fail=$((n_fail+1))
+      fi
+    else
+      err "$n update failed — see: dev log"; n_fail=$((n_fail+1))
+    fi
+  done
+
+  say "Summary"
+  inf "updated $n_done · skipped $n_skip · no update method $n_none · failed $n_fail"
+  [ -n "$LOGFILE" ] && dim "log: $LOGFILE"
   return 0
 }
 
@@ -513,6 +580,7 @@ case "$CMD" in
   check)         log_open check;  cmd_check "$@" ;;
   plan)          log_open plan;   cmd_plan "$@" ;;
   install)       log_open install; cmd_install "$@" ;;
+  update)        log_open update;  cmd_update "$@" ;;
   clean-install) log_open clean-install; cmd_clean_install "$@" ;;
   purge)         log_open purge;  cmd_purge "$@" ;;
   doctor)        log_open doctor; cmd_doctor ;;
