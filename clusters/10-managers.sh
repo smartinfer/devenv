@@ -33,6 +33,7 @@ item name=uv \
   shell="$DEV_F_ENV"':UV_PYTHON_PREFERENCE=only-managed' \
   network='https://astral.sh/uv/install.sh' system='' apps='' receipt='' \
   purge='rm -rf "$HOME/.local/share/uv" "$HOME/.cache/uv" "$HOME/.local/bin/uv" "$HOME/.local/bin/uvx"' \
+  update='uv self update' \
   manual='curl -LsSf https://astral.sh/uv/install.sh | sh' \
   install=install_uv
 

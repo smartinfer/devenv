@@ -8,6 +8,7 @@ item name=rust \
   shell="$DEV_F_PATH"':$HOME/.cargo/bin' \
   network='https://sh.rustup.rs' system='' apps='' receipt='' \
   purge='rustup self uninstall -y 2>/dev/null || rm -rf "$HOME/.rustup" "$HOME/.cargo"' \
+  update='rustup update' \
   manual='curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y' \
   install=install_rust
 

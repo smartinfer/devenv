@@ -250,7 +250,7 @@ assert_has "$(PATH="$SANDBOX/fakebin:$PATH" run_dev update ninja --yes)" "no in-
            "update skips items without an update method"
 assert_not "PATH='$SANDBOX/fakebin:$PATH' run_dev update ninja --yes | grep -q 'Purging'" \
            "update never purges"
-for n in claude-code codex gemini-cli; do
+for n in claude-code codex gemini-cli rust uv; do
   assert "[ -n \"\$(item_get $n update)\" ]" "$n declares an update method"
 done
 assert_not "run_dev bogus-command | grep -q 'unknown command' && false" "unknown command is rejected"
