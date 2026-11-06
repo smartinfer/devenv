@@ -27,7 +27,7 @@ assert_has()  { case "$1" in *"$2"*) t_ok "$3" ;; *) t_bad "$3" "missing '$2'" ;
 # ---------------------------------------------------------------------------
 group "1. Syntax"
 # ---------------------------------------------------------------------------
-for f in "$PKG/dev" "$PKG"/lib/*.sh "$PKG"/clusters/*.sh "$PKG"/test/*.sh; do
+for f in "$PKG/dev" "$PKG/local-llm" "$PKG"/lib/*.sh "$PKG"/clusters/*.sh "$PKG"/test/*.sh; do
   if bash -n "$f" 2>/dev/null; then t_ok "parses: ${f#$PKG/}"
   else t_bad "parses: ${f#$PKG/}" "$(bash -n "$f" 2>&1 | head -2)"; fi
 done
@@ -40,7 +40,7 @@ group "2. Bash 3.2 compatibility (macOS ships bash 3.2)"
 # is why the naive `grep -rn ... | grep -v '^#'` version silently passed).
 check_forbidden() {
   local pat="$1" desc="$2" f hits=""
-  for f in "$PKG/dev" "$PKG"/lib/*.sh "$PKG"/clusters/*.sh; do
+  for f in "$PKG/dev" "$PKG/local-llm" "$PKG"/lib/*.sh "$PKG"/clusters/*.sh; do
     local h
     h=$(sed 's/#.*$//' "$f" | grep -nE "$pat" | head -2)
     [ -n "$h" ] && hits="$hits${f#$PKG/}: $h
@@ -210,10 +210,30 @@ group "8. CLI surface (no writes, no network)"
 run_dev() { ( cd "$PKG" && DEVENV_STATE="$SANDBOX/state2" DEVENV_PREFIX="$SANDBOX/local" \
               ./dev "$@" --no-color 2>&1 ); }
 
+# Render a card against a fresh item registry for the requested platform.
+# The main test process intentionally loads only items supported by its host,
+# so macOS-only cards are otherwise absent when this suite runs on Linux/WSL.
+platform_footprint_card() { (
+  DEV_PLATFORM="$1"
+  ITEM_NAMES=(); ITEM_DATA=(); ITEM_CLUSTER=(); CLUSTER_LIST=""; CURRENT_CLUSTER=""
+  load_clusters
+  item_exists "$2" || return 1
+  footprint_card "$2" missing 2>&1
+); }
+
 assert_has "$(run_dev help)"     "PER-ITEM PROMPT" "dev help renders"
 assert_has "$(run_dev help)"     "--retry-deferred" "help documents --retry-deferred"
 assert_has "$(run_dev clusters)" "20-systems"      "dev clusters lists clusters"
 assert_has "$(run_dev clusters)" "rust"            "dev clusters lists items"
+# Every item in 05-terminal-macos is darwin-only, so on Linux the cluster
+# is filtered out entirely; assert whichever is true for this host.
+if [ "$DEV_PLATFORM" = darwin ]; then
+  assert_has "$(run_dev clusters)" "05-terminal-macos" "dev clusters lists the macOS terminal package"
+else
+  assert_not "run_dev clusters | grep -q 05-terminal-macos" "macOS terminal package is filtered off macOS"
+fi
+assert_has "$(run_dev clusters)" "60-ml-inf"       "dev clusters lists the inference pack"
+assert_has "$(run_dev clusters)" "55-mobile-dev"   "dev clusters lists the mobile development package"
 assert_has "$(run_dev status)"   "CLUSTER"         "dev status renders a table"
 assert_has "$(run_dev status --commands)" "dev install" "status --commands emits commands"
 # Render directly rather than through `dev plan`: plan skips items that are
@@ -221,25 +241,17 @@ assert_has "$(run_dev status --commands)" "dev install" "status --commands emits
 RCARD=$(footprint_card rust missing 2>&1)
 assert_has "$RCARD" "PURGE"        "footprint card shows the purge line"
 assert_has "$RCARD" "sh.rustup.rs" "footprint card discloses the network source"
-# Render the card directly. Going through `dev plan` made this depend on
-# whether the item happened to be installed — plan skips items already ok.
-#
-# clt and vscode are darwin-only items, so on Linux they are never loaded and
-# footprint_card renders nothing. Assert against whichever items actually
-# carry a SYSTEM/APPS footprint on this host: the invariant under test is
-# "SYSTEM footprints are disclosed and flagged", not "macOS is the host".
-if [ "$DEV_PLATFORM" = darwin ]; then
-  SYS_ITEM=clt;         SYS_PATH=CommandLineTools
-  APPS_ITEM=vscode;     APPS_MARK=Applications
-else
-  SYS_ITEM=build-tools; SYS_PATH=/usr/include
-  APPS_ITEM=build-tools; APPS_MARK=apt
-fi
-CARD=$(footprint_card "$SYS_ITEM" missing 2>&1)
+# Render these macOS cards from an isolated Darwin registry. Going through
+# `dev plan` would depend on whether the item is installed, while using the
+# host registry would omit these items entirely on Linux/WSL.
+CARD=$(platform_footprint_card darwin clt)
 assert_has "$CARD" "needs sudo"   "SYSTEM footprints are flagged as needing sudo"
-assert_has "$CARD" "$SYS_PATH"    "SYSTEM paths are disclosed"
-CARD2=$(footprint_card "$APPS_ITEM" missing 2>&1)
-assert_has "$CARD2" "$APPS_MARK"      "APPS/receipt footprints are disclosed"
+assert_has "$CARD" "CommandLineTools" "SYSTEM paths are disclosed"
+CARD2=$(platform_footprint_card darwin vscode)
+assert_has "$CARD2" "Applications"    "APPS footprints are disclosed"
+LCARD=$(platform_footprint_card linux build-tools)
+assert_has "$LCARD" "needs sudo"  "Linux SYSTEM footprints are flagged as needing sudo"
+assert_has "$LCARD" "apt"         "Linux system packages are disclosed"
 assert_has "$CARD2" "PURGE"           "every card shows its purge command"
 assert_has "$(run_dev --version)" "dev "           "dev --version works"
 assert_has "$(run_dev help)"     "update [targets]" "help documents update"
@@ -298,9 +310,24 @@ assert_not "printf '%s' \"\$LINUX_CLUSTERS\" | grep -q 'Visual Studio Code (arm6
            "Linux excludes macOS editor installers"
 assert_not "printf '%s' \"\$LINUX_CLUSTERS\" | grep -q 'MLX runs on the GPU'" \
            "Linux excludes Apple-only MLX checks"
+assert_has "$LINUX_CLUSTERS" "vllm-inference" "Linux includes the vLLM inference backend"
+assert_not "printf '%s' \"\$LINUX_CLUSTERS\" | grep -q 'mlx-inference'" \
+           "Linux excludes the Apple inference backend"
+LINUX_ML_PLAN=$(run_linux_dev plan ml-inf)
+assert_has "$LINUX_ML_PLAN" "vLLM" "ml-inf resolves to the Linux inference pack"
+assert_has "$LINUX_ML_PLAN" "llama.cpp" "ml-inf includes a portable fallback"
 LINUX_PLAN=$(run_linux_dev plan build-tools)
 assert_has "$LINUX_PLAN" "apt" "Linux base plan discloses apt"
 assert_has "$LINUX_PLAN" "needs sudo" "Linux system packages require approval"
+
+group "8g. Local inference status is explicit"
+LLM_STATUS=$(DEVENV_PREFIX="$SANDBOX/local" "$PKG/local-llm" status 2>&1 || true)
+assert_has "$LLM_STATUS" "mlx-lm" "local-llm reports the Apple backend"
+assert_has "$LLM_STATUS" "vllm" "local-llm reports the Linux backend"
+assert_has "$LLM_STATUS" "llama.cpp" "local-llm reports the fallback backend"
+assert_has "$LLM_STATUS" "selected" "local-llm reports the selected backend"
+assert_has "$(sed -n '/nvidia_smi_command()/,/^}/p' "$PKG/local-llm")" "/usr/lib/wsl/lib/nvidia-smi" \
+           "local-llm checks the canonical WSL NVIDIA path"
 
 # ---------------------------------------------------------------------------
 group "8g. Shell wiring follows the login shell"
@@ -418,7 +445,10 @@ assert "[ -f '$PKG/.gitignore' ]"  ".gitignore present"
 assert "grep -q 'state/' '$PKG/.gitignore'" "state/ is gitignored"
 assert_not "grep -qE '^python' '$PKG/mise.toml'" "mise.toml does NOT manage python (uv owns it)"
 assert     "grep -q 'node' '$PKG/mise.toml'"     "mise.toml manages node"
+assert     "grep -qE '^kotlin[[:space:]]*=' '$PKG/mise.toml'" "mise.toml manages Kotlin"
 assert_not "grep -qE '^sbcl' '$PKG/mise.toml'"   "mise.toml does NOT compile sbcl"
+assert "grep -q 'Catppuccin' '$PKG/terminal/ghostty/config.ghostty'" "Ghostty config uses a tracked theme"
+assert "grep -q 'vcs_info' '$PKG/terminal/zsh-theme.zsh'" "Zsh prompt reports Git state without a framework"
 assert "[ -x '$PKG/dev' ]" "dev is executable"
 
 group "10b. No hardcoded version inside a /latest/download/ URL"

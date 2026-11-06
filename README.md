@@ -46,7 +46,7 @@ Homebrew is excellent when the goal is to install a large catalog of software wi
 | Concern | `devenv` | General-purpose package manager |
 |---|---|---|
 | Before installation | Shows paths, network sources, shell changes, apps, system files, receipts, and purge command | Usually shows a package name and dependency plan |
-| Runtime ownership | Python belongs to uv, Rust to rustup, Node/Go/JVM to mise, and so on | May install parallel runtimes into a shared prefix |
+| Runtime ownership | Python belongs to uv, Rust to rustup, Node/Go/JVM/Kotlin to mise, and so on | May install parallel runtimes into a shared prefix |
 | Filesystem layout | Tool-specific directories, primarily under `$HOME` | Shared manager-controlled prefix and dependency tree |
 | Shell integration | Generates auditable shell files matched to your login shell, with macOS startup order handled explicitly | Adds a shared prefix or manager hook to PATH |
 | Removal | Records each tool's roots and exact purge operation | Removes managed packages; user state and native-manager files may remain |
@@ -151,7 +151,7 @@ Every item shows its complete footprint before you decide. Six categories, and o
 
 `SHELL` never names your dotfiles directly. Everything writes into generated files inside this repository's `shell/` directory; your dotfiles are touched exactly once, during `00-base`, and that prompt shows the added lines verbatim first.
 
-**Which dotfiles depends on your login shell** — see [Shell families](#shell-families-zsh-and-bash). On macOS and for a zsh login it is `.zshenv`, `.zprofile`, and `.zshrc`; for a bash login on Linux it is `.profile` and `.bashrc`. Nothing ever creates `.bash_profile`, which would shadow the `.profile` chain Debian-family systems rely on.
+**Which dotfiles depends on your login shell** — see [Shell families](#shell-families-zsh-and-bash). On macOS and for a zsh login it is `.zshenv`, `.zprofile`, and `.zshrc`; for a bash login on Linux it is `.profile` (or an existing `.bash_profile`) and `.bashrc`. Nothing ever creates `.bash_profile`, which would shadow the `.profile` chain Debian-family systems rely on.
 
 `--yes` skips prompts but **refuses to auto-approve any item with a SYSTEM or APPS footprint.** Those always ask.
 
@@ -244,17 +244,17 @@ The generated files follow the **login shell**, not the platform. Wiring the wro
 | | zsh login (all macOS) | bash login (Debian-family default) |
 |---|---|---|
 | Generated files | `shell/env.zsh`, `path.zsh`, `interactive.zsh` | `shell/env.sh`, `path.sh`, `interactive.sh` |
-| Environment | `.zshenv` → `env.zsh` | `.profile` → `env.sh` |
+| Environment | `.zshenv` → `env.zsh` | `.profile` (or existing `.bash_profile`) → `env.sh` |
 | PATH | `.zprofile` → `path.zsh` | via `env.sh`, which sources `path.sh` |
-| Hooks and aliases | `.zshrc` → `interactive.zsh` | `.bashrc` → `env.sh` + `interactive.sh` |
+| Hooks and aliases | `.zshrc` → `interactive.zsh` | `.bashrc` → `env.sh` at the top, `interactive.sh` at the end |
 
 macOS is pinned to zsh regardless of `$SHELL`: it is the system default there, and the whole `path_helper` ordering above only makes sense for zsh. On Linux the passwd entry decides. Override with `DEVENV_SHELL_KIND=zsh|bash` if you need to.
 
-**Why bash needs a different map.** Bash has no `.zshenv` — no file it reads for *every* shell, including non-interactive ones. The closest equivalent is `.profile`, which the desktop session and `ssh` logins read once, so everything spawned from that session inherits the environment. `.bashrc` then repeats `env.sh` for non-login interactive shells and adds the hooks. Repeating is safe by construction: env entries are plain exports, and `path.sh` removes an entry before prepending it.
+**Why bash needs a different map.** Bash has no `.zshenv` — no file it reads for *every* shell, including non-interactive ones. The closest equivalent is `.profile`, which the desktop session and `ssh` logins read once, so everything spawned from that session inherits the environment. `.bashrc` then repeats `env.sh` for non-login shells and adds the hooks. The `env.sh` block goes at the *top* of `.bashrc`, before the `case $- in *i*)` guard Debian and Ubuntu ship, so non-interactive bash (coding agents, `bash -c`) still gets the environment; the `interactive.sh` block goes at the end, after your own setup. Repeating is safe by construction: env entries are plain exports, and `path.sh` removes an entry before prepending it.
 
 Everything reachable from `.profile` stays **POSIX** — `.` rather than `source`, no bashisms — because dash reads `.profile` on an `sh` login. The test suite executes the generated `env.sh` under `sh` to enforce this.
 
-`.bash_profile` is deliberately never created. Bash reads it *instead of* `.profile`, which would silently cut the `.profile` → `.bashrc` chain that Ubuntu and Debian set up by default.
+`.bash_profile` is deliberately never created. Bash reads it *instead of* `.profile`, which would silently cut the `.profile` → `.bashrc` chain that Ubuntu and Debian set up by default. If you already have one, it is wired in place of `.profile`, since that is the file your login actually reads.
 
 Shell-specific payloads follow the family too: `mise` is asked for `mise activate bash` or `mise activate zsh` as appropriate, since the wrong one produces a syntax error on every prompt.
 
@@ -345,6 +345,7 @@ Numbered so dependency order is visible in the filename.
 | # | Cluster | Contents |
 |---|---|---|
 | 00 | `base` | Command Line Tools, shell wiring |
+| 05 | `terminal-macos` | Ghostty, managed light/dark theme, dependency-free Zsh prompt |
 | 10 | `managers` | mise (runtimes), uv (Python) |
 | 20 | `systems` | Rust, Ninja, CMake |
 | 21 | `python` | CPython 3.12/3.13, global CLIs, Hugging Face Hub |
@@ -357,6 +358,8 @@ Numbered so dependency order is visible in the filename.
 | 41 | `editors` | VS Code, Cursor |
 | 45 | `cloud` | Google Cloud CLI (`gcloud`, `bq`, `gsutil`) |
 | 50 | `web` | FrankenPHP, Composer, Caddy |
+| 55 | `mobile-dev` | Kotlin CLI, Android Studio/SDK/emulator, Xcode/Swift/iOS Simulator |
+| 60 | `ml-inf` | Local inference: MLX-LM on Apple, vLLM on Linux/NVIDIA, llama.cpp fallback |
 | 60 | `ml` | No installs — MLX GPU verification |
 | 70 | `latex` | **Verify only** — never installs or modifies TeX |
 
@@ -364,9 +367,12 @@ Suggested order for a fresh machine:
 
 ```bash
 ./dev install 00-base 10-managers 21-python
+./dev install 05-terminal-macos
 ./dev install 40-agents 41-editors
 ./dev install 20-systems 30-formal
 ./dev install 25-containers 45-cloud
+./dev install 55-mobile-dev
+./dev install ml-inf
 ./dev install 50-web 70-latex
 ./dev install 22-functional 23-scientific 24-symbolic
 ./dev status
@@ -390,6 +396,8 @@ Per-project venvs are correct, not chaos. uv hardlinks from one content-addresse
 
 **Java survives only as a dependency.** Apalache, Alloy, and TLA+ are JVM tools, and Quint's model checker *is* Apalache. mise installs a pinned Temurin LTS into one directory; you never write Java.
 
+**Mobile readiness is more than a compiler.** mise provides the standalone Kotlin compiler, while Android projects use their checked-in Gradle wrapper and Android Studio manages the SDK, emulator, and device images. Apple's Command Line Tools provide Swift for command-line and macOS work; building and testing iOS apps additionally requires full Xcode plus an installed iOS Simulator runtime. The large, licensed GUI/SDK downloads remain explicit manual steps.
+
 **PHP is FrankenPHP.** macOS stopped bundling PHP in Monterey. FrankenPHP is a single static binary containing the runtime and a web server — no extension hell, deletable in one `rm`.
 
 **No hardcoded version inside a `/latest/download/` URL.** That pattern 404s the moment upstream cuts a release, because the path resolves to the newest release but the filename is pinned to an old one. Assets are resolved from the GitHub API instead. The test suite enforces this.
@@ -398,7 +406,113 @@ Per-project venvs are correct, not chaos. uv hardlinks from one content-addresse
 
 ---
 
-## Local ML on Apple silicon
+## Windows users: WSL 2, Ubuntu 24.04, and NVIDIA
+
+The supported Windows setup is currently:
+
+- Windows 11, or Windows 10 version 21H2 or newer
+- WSL 2 (the `2` is the WSL generation, not the Ubuntu version)
+- Ubuntu 24.04
+- A current Windows NVIDIA driver with WSL/CUDA support
+- A vLLM-compatible NVIDIA GPU (compute capability 7.5 or newer)
+
+Run these checks from **Windows PowerShell**, not from Ubuntu:
+
+```powershell
+wsl --version
+wsl --list --verbose
+nvidia-smi
+```
+
+The distribution should appear with version `2`, for example:
+
+```text
+  NAME             STATE      VERSION
+* Ubuntu-24.04     Running    2
+```
+
+If it is version 1, use the exact distribution name printed by the list:
+
+```powershell
+wsl --set-version "Ubuntu-24.04" 2
+```
+
+Update WSL and completely stop its VM before testing GPU access:
+
+```powershell
+wsl --update
+wsl --shutdown
+```
+
+When a full Windows restart is required, save open work and run:
+
+```powershell
+shutdown /r /t 0
+```
+
+After Windows restarts, open Ubuntu and verify the WSL GPU device and the
+Windows-provided NVIDIA utility:
+
+```bash
+ls -l /dev/dxg
+/usr/lib/wsl/lib/nvidia-smi
+```
+
+Both must work before installing vLLM. `devenv` detects the canonical
+`/usr/lib/wsl/lib/nvidia-smi` location and adds `/usr/lib/wsl/lib` to its
+generated shell PATH. If `nvidia-smi` reports `GPU access blocked by the
+operating system`, update WSL and the **Windows** NVIDIA driver, run
+`wsl --shutdown`, and restart Windows. A missing `/dev/dxg` means the GPU has
+not been projected into the WSL VM.
+
+Never install `nvidia-driver`, `cuda-drivers`, or another Linux display driver
+inside WSL. The GPU driver is owned by Windows and projected into Ubuntu.
+Installing a Linux driver can replace or conflict with the WSL libraries. The
+vLLM item installs its compatible PyTorch and CUDA user-space dependencies in
+`~/.local/opt/vllm`; it does not modify the host driver.
+
+Once `/usr/lib/wsl/lib/nvidia-smi` succeeds:
+
+```bash
+./dev install vllm-inference --verbose
+./dev check ml-inf
+local-llm status
+```
+
+Expected readiness includes `vllm installed`, `nvidia ready`, and `selected
+vllm`. Microsoft documents the WSL GPU prerequisites in its
+[CUDA on WSL guide](https://learn.microsoft.com/windows/ai/directml/gpu-cuda-in-wsl),
+and NVIDIA documents the driver boundary and WSL limitations in its
+[CUDA on WSL user guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html).
+
+---
+
+## Local inference
+
+Install the cross-platform local-inference pack with:
+
+```bash
+./dev plan ml-inf
+./dev install ml-inf
+./dev check ml-inf       # installed, missing, failed, or deferred per component
+./dev registry           # successful installs recorded by devenv
+local-llm status         # backend and GPU readiness
+```
+
+The pack installs MLX-LM on Apple Silicon, vLLM on Linux when an NVIDIA GPU
+is visible, and llama.cpp as the portable GGUF fallback. It never downloads a
+model or starts a background service automatically. Start an explicitly chosen
+model with `local-llm serve MODEL`; the API listens on port 8000 by default.
+
+On WSL, the NVIDIA driver belongs to Windows. The vLLM installer checks
+`nvidia-smi`, including WSL's canonical `/usr/lib/wsl/lib/nvidia-smi` location,
+and adds `/usr/lib/wsl/lib` to the generated shell PATH when needed. It will stop
+with a diagnostic rather than installing or replacing the Linux GPU driver.
+vLLM owns its isolated PyTorch environment under
+`~/.local/opt/vllm`; project PyTorch and JAX dependencies still belong in each
+project's own uv environment.
+
+### Apple silicon notes
 
 MLX is the only framework that uses the M5 GPU Neural Accelerators, and only on **macOS 26.2 or later**. Below that you keep the memory-bandwidth gain but lose the roughly 4× prefill speedup. `dev install mlx-check` verifies this and warns if your OS is too old.
 
@@ -440,6 +554,7 @@ devenv/
 │   ├── ui.sh             footprint cards, prompts, tables
 │   └── install.sh        reusable installers (gh release, tarball, script)
 ├── clusters/*.sh         one file per cluster; declarative item definitions
+├── terminal/             tracked Ghostty configuration and Zsh prompt
 ├── shell/                GENERATED — env/path/interactive, .zsh or .sh per login shell
 ├── state/                GENERATED — registry.tsv, deferred.tsv, logs/
 ├── test/run-tests.sh     hermetic self-tests
@@ -514,3 +629,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+### Managed Python and Bash startup
+
+`dev install python-runtimes` exposes uv-managed Python 3.12 as `python` and
+`python3` in `~/.local/bin`; Python 3.13 remains available as `python3.13`.
+`dev install shellwiring` sources the generated environment from Bash login
+startup and before the interactive guard in `.bashrc` on a bash login, or from
+the zsh startup files on a zsh login. The shared PATH exposes standalone uv tools such as `hf`.
+Existing processes need to reload the environment or restart.
+
+Python libraries stay isolated per project. Create a project environment with
+`uv venv --python 3.12 .venv` and install its dependencies with
+`uv pip install --python .venv/bin/python -e .`. Activating `.venv` selects its
+Python for shell commands; applications can select `.venv/bin/python` explicitly.
+A global `hf` command does not install `huggingface_hub` into every interpreter.

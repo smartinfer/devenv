@@ -60,7 +60,8 @@ install_z3() { install_gh_bin Z3Prover/z3 'arm64-osx' z3; }
 
 item name=alloy \
   desc="Alloy 6 — relational model finder (jar; needs the JVM)" \
-  check='[ -f "$HOME/.local/opt/jars/alloy.jar" ]' version='' method=manual \
+  check='java -jar "$HOME/.local/opt/jars/alloy.jar" version' \
+  version='java -jar "$HOME/.local/opt/jars/alloy.jar" version' method=manual \
   home='~/.local/opt/jars/alloy.jar:~40MB' \
   shell="$DEV_F_INT"':alias alloy' \
   network='github.com/AlloyTools/org.alloytools.alloy releases' system='' apps='' receipt='' \
@@ -68,6 +69,7 @@ item name=alloy \
   manual='Download the jar from https://alloytools.org/download.html into ~/.local/opt/jars/alloy.jar' \
   install=install_alloy
 install_alloy() {
+  have java || { err "no JVM found — alloy needs one (mise installs temurin-21)"; return 1; }
   mkdir -p "$LOCAL_OPT/jars"
   local url; url=$(gh_asset_url AlloyTools/org.alloytools.alloy '\.jar$')
   [ -n "$url" ] || { err "no alloy jar in latest release — see alloytools.org"; return 1; }

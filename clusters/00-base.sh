@@ -3,8 +3,8 @@ cluster 00-base
 
 item name=clt \
   supports=darwin \
-  desc="Apple Command Line Tools — clang, ld, make, git, and the macOS SDK" \
-  check='xcode-select -p >/dev/null 2>&1' \
+  desc="Apple Command Line Tools — clang, Swift, ld, make, git, and the macOS SDK" \
+  check='xcode-select -p >/dev/null 2>&1 && command -v swift >/dev/null 2>&1' \
   version='clang --version' \
   method=verify \
   home='' \
@@ -41,7 +41,7 @@ item name=shellwiring \
   install=install_shellwiring
 
 install_shellwiring() {
-  local m="# >>> devenv >>>" e="# <<< devenv <<<" row f gen line block oldifs
+  local m="# >>> devenv >>>" e="# <<< devenv <<<" row f gen line block early tmp oldifs
   # Generate first: the dotfiles are about to source these, and a login in
   # another terminal should never find a source line pointing at nothing.
   shellent_add shellwiring path "$LOCAL_BIN"
@@ -56,14 +56,29 @@ install_shellwiring() {
       ok "$f already wired"
       continue
     fi
-    block=""
+    block=""; early=""
     oldifs=$IFS; IFS=','; set -- ${row#*:}; IFS=$oldifs
     for gen in "$@"; do
       line="[ -f \"$DEV_SHELL/$gen\" ] && . \"$DEV_SHELL/$gen\""
-      block="${block}${line}
+      # Debian/Ubuntu .bashrc returns early for non-interactive shells, so
+      # the environment has to come before that guard or agents never see
+      # it. Interactive hooks stay at the end, after the user's own setup.
+      if [ "$f" = .bashrc ] && [ "$gen" = "$DEV_F_ENV" ]; then
+        early="${early}${line}
 "
+      else
+        block="${block}${line}
+"
+      fi
     done
-    printf '\n%s\n%s%s\n' "$m" "$block" "$e" >> "$HOME/$f"
+    if [ -n "$early" ]; then
+      tmp=$(mktemp)
+      printf '%s\n%s%s\n' "$m" "$early" "$e" > "$tmp"
+      cat "$HOME/$f" >> "$tmp"
+      cat "$tmp" > "$HOME/$f"   # rewrite in place: keeps symlinks and modes
+      rm -f "$tmp"
+    fi
+    [ -n "$block" ] && printf '\n%s\n%s%s\n' "$m" "$block" "$e" >> "$HOME/$f"
     ok "wired $f"
   done
   return 0

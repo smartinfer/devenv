@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# local-llm — one local inference entrypoint across Apple Silicon and Linux.
+set -uo pipefail
+
+LOCAL_LLM_PREFIX="${DEVENV_PREFIX:-$HOME/.local}"
+LOCAL_LLM_OPT="$LOCAL_LLM_PREFIX/opt"
+LOCAL_LLM_PORT="${LOCAL_LLM_PORT:-8000}"
+VLLM_BIN="$LOCAL_LLM_OPT/vllm/bin/vllm"
+LLAMA_BIN="$LOCAL_LLM_PREFIX/bin/llama-server"
+
+usage() {
+  cat <<'HELP'
+local-llm — platform-aware local inference
+
+USAGE
+  local-llm status
+  local-llm backend
+  local-llm serve <model-or-gguf> [engine options...]
+
+BACKENDS
+  Apple Silicon          MLX-LM
+  Linux + NVIDIA GPU     vLLM
+  fallback               llama.cpp (a local GGUF file is required)
+
+ENVIRONMENT
+  LOCAL_LLM_BACKEND      force mlx, vllm, or llama
+  LOCAL_LLM_PORT         server port (default: 8000)
+  DEVENV_PREFIX          install prefix (default: ~/.local)
+
+Nothing is started in the background and models are never downloaded by
+devenv itself. MLX-LM and vLLM may download a named Hugging Face model when
+you explicitly run "local-llm serve".
+HELP
+}
+
+mlx_command() {
+  if [ -x "$LOCAL_LLM_PREFIX/bin/mlx_lm.server" ]; then
+    printf '%s\n' "$LOCAL_LLM_PREFIX/bin/mlx_lm.server"
+  else
+    command -v mlx_lm.server 2>/dev/null
+  fi
+}
+mlx_ready() {
+  local mlx_bin
+  mlx_bin=$(mlx_command) || return 1
+  # An inaccessible Metal device can abort the process instead of returning a
+  # normal error. Keep that child-shell diagnostic out of status output.
+  sh -c '"$1" --help >/dev/null 2>&1' sh "$mlx_bin" >/dev/null 2>&1
+}
+nvidia_smi_command() {
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    command -v nvidia-smi
+  elif [ -x /usr/lib/wsl/lib/nvidia-smi ]; then
+    printf '%s\n' /usr/lib/wsl/lib/nvidia-smi
+  else
+    return 1
+  fi
+}
+gpu_ready() {
+  local smi
+  smi=$(nvidia_smi_command) || return 1
+  "$smi" >/dev/null 2>&1
+}
+vllm_ready() {
+  [ -x "$VLLM_BIN" ] && [ -x "$LOCAL_LLM_OPT/vllm/bin/python" ] &&
+    "$LOCAL_LLM_OPT/vllm/bin/python" -c \
+      'import torch, vllm; assert torch.cuda.is_available()' >/dev/null 2>&1
+}
+
+select_backend() {
+  if [ -n "${LOCAL_LLM_BACKEND:-}" ]; then
+    printf '%s' "$LOCAL_LLM_BACKEND"
+    return
+  fi
+  case "$(uname -s 2>/dev/null):$(uname -m 2>/dev/null)" in
+    Darwin:arm64)
+      mlx_ready && { printf '%s' mlx; return; }
+      ;;
+    Linux:*)
+      vllm_ready && gpu_ready && { printf '%s' vllm; return; }
+      ;;
+  esac
+  [ -x "$LLAMA_BIN" ] && { printf '%s' llama; return; }
+  printf '%s' none
+}
+
+status_line() { printf '  %-12s %-12s %s\n' "$1" "$2" "$3"; }
+
+cmd_status() {
+  local os arch mlx_state vllm_state llama_state gpu_state selected smi
+  os=$(uname -s 2>/dev/null || echo unknown)
+  arch=$(uname -m 2>/dev/null || echo unknown)
+
+  if mlx_ready; then
+    mlx_state=installed
+  elif mlx_command >/dev/null; then
+    mlx_state=broken
+  else
+    mlx_state=missing
+  fi
+  if [ "$os" != Darwin ] || [ "$arch" != arm64 ]; then mlx_state=unavailable; fi
+
+  if vllm_ready; then
+    vllm_state=installed
+  elif [ -x "$VLLM_BIN" ]; then
+    vllm_state=broken
+  else
+    vllm_state=missing
+  fi
+  if [ "$os" != Linux ]; then vllm_state=unavailable; fi
+
+  if gpu_ready; then
+    smi=$(nvidia_smi_command)
+    gpu_state="ready ($smi)"
+  else
+    gpu_state=unavailable
+  fi
+  if [ -x "$LLAMA_BIN" ]; then llama_state=installed; else llama_state=missing; fi
+  selected=$(select_backend)
+
+  printf 'local inference status\n'
+  printf '  platform     %s/%s\n' "$os" "$arch"
+  status_line mlx-lm "$mlx_state" "Apple Silicon backend"
+  status_line vllm "$vllm_state" "Linux NVIDIA backend"
+  status_line nvidia "$gpu_state" "nvidia-smi inside Linux/WSL"
+  status_line llama.cpp "$llama_state" "CPU/GGUF fallback"
+  printf '  selected     %s\n' "$selected"
+  printf '  model cache  %s\n' "${HF_HOME:-$HOME/.cache/huggingface}"
+
+  [ "$selected" != none ]
+}
+
+cmd_serve() {
+  [ $# -gt 0 ] || { echo "local-llm: serve needs a model name or GGUF path" >&2; return 2; }
+  local model="$1" backend mlx_bin
+  shift
+  backend=$(select_backend)
+  case "$backend" in
+    mlx)
+      mlx_ready || { echo "local-llm: MLX-LM is missing or cannot access the Metal GPU" >&2; return 1; }
+      mlx_bin=$(mlx_command)
+      exec "$mlx_bin" --model "$model" --port "$LOCAL_LLM_PORT" "$@"
+      ;;
+    vllm)
+      vllm_ready || { echo "local-llm: vLLM is missing or its PyTorch/CUDA environment is broken" >&2; return 1; }
+      gpu_ready || { echo "local-llm: NVIDIA GPU is not visible inside Linux/WSL" >&2; return 1; }
+      exec "$VLLM_BIN" serve "$model" --port "$LOCAL_LLM_PORT" "$@"
+      ;;
+    llama)
+      [ -f "$model" ] || {
+        echo "local-llm: llama.cpp fallback requires a local GGUF file" >&2
+        echo "local-llm: got: $model" >&2
+        return 1
+      }
+      exec "$LLAMA_BIN" --model "$model" --port "$LOCAL_LLM_PORT" "$@"
+      ;;
+    none)
+      echo "local-llm: no inference backend is installed; run: dev install ml-inf" >&2
+      return 1
+      ;;
+    *)
+      echo "local-llm: unknown backend '$backend' (use mlx, vllm, or llama)" >&2
+      return 2
+      ;;
+  esac
+}
+
+case "${1:-help}" in
+  status)  cmd_status ;;
+  backend) select_backend; echo ;;
+  serve)   shift; cmd_serve "$@" ;;
+  help|-h|--help) usage ;;
+  --version) echo "local-llm 1.0.0" ;;
+  *) echo "local-llm: unknown command '$1'" >&2; usage >&2; exit 2 ;;
+esac

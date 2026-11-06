@@ -86,20 +86,27 @@ shellwire_plan() {
     # ~/.bashrc repeats it for non-login interactive shells and adds hooks.
     # Repeating is safe: env entries are plain exports and path.sh
     # de-duplicates before it prepends.
+    # A bash login reads ~/.bash_profile instead of ~/.profile when it
+    # exists, so wire whichever one bash will actually read. Neither is
+    # ever created as a side effect beyond the one chosen here.
     printf '%s\n' \
-      '.profile:env.sh' \
+      "$(bash_login_file):env.sh" \
       '.bashrc:env.sh,interactive.sh'
   fi
 }
 
+bash_login_file() {
+  if [ -f "$HOME/.bash_profile" ]; then printf '.bash_profile'; else printf '.profile'; fi
+}
+
 # The dotfile whose marker block means "shell wiring is installed".
 shellwire_primary() {
-  if [ "$DEV_SHELL_KIND" = zsh ]; then printf '.zprofile'; else printf '.profile'; fi
+  if [ "$DEV_SHELL_KIND" = zsh ]; then printf '.zprofile'; else bash_login_file; fi
 }
 
 # Every dotfile devenv may have written a marker block into, either family.
 # Purge has to clean up after a login-shell change, so it is not filtered.
-shellwire_all_dotfiles() { printf '%s\n' .zshenv .zprofile .zshrc .profile .bashrc; }
+shellwire_all_dotfiles() { printf '%s\n' .zshenv .zprofile .zshrc .profile .bash_profile .bashrc; }
 
 platform_supported() {
   case "$DEV_PLATFORM" in darwin|linux) return 0 ;; *) return 1 ;; esac
