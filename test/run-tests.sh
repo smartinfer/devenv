@@ -285,6 +285,29 @@ run_dev install ninja --dry-run --yes >/dev/null 2>&1
 AFTER=$(ls -1 "$SANDBOX/local/bin" 2>/dev/null | wc -l | tr -d ' ')
 assert_eq "$AFTER" "$BEFORE" "--dry-run installed nothing"
 
+group "8d. Script installers support Bash and preserve arguments"
+(
+  LOGFILE="$SANDBOX/script-installer.log"
+  OPT_DRYRUN=0; OPT_VERBOSE=0
+  export INSTALLER_RESULT="$SANDBOX/script-installer-result"
+  # Replace only the download; exercise the real installer and command runner.
+  curl() {
+    cat > "$4" <<'INSTALLER'
+#!/bin/bash
+args=("$@")
+[[ ${#args[@]} -eq 3 ]] || exit 1
+printf '%s\n' "${args[@]}" > "$INSTALLER_RESULT"
+exit 7
+INSTALLER
+  }
+  install_via_script https://example.invalid/install.sh 'two words' '' '$(touch should-not-exist)'
+  rc=$?
+  [ "$rc" -eq 7 ] || exit 1
+  printf '%s\n' 'two words' '' '$(touch should-not-exist)' > "$SANDBOX/script-installer-expected"
+  cmp "$INSTALLER_RESULT" "$SANDBOX/script-installer-expected"
+)
+assert_eq "$?" "0" "Bash installers preserve literal arguments and propagate failure"
+
 group "8e. Logs are written and persisted"
 assert "[ -d '$SANDBOX/state2/logs' ]"                     "log directory created"
 assert "[ \$(ls -1 '$SANDBOX/state2/logs'/*.log 2>/dev/null | wc -l) -gt 0 ]" "log files written"

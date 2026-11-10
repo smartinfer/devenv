@@ -92,7 +92,7 @@ install_gh_tree() {  # <repo> <asset-pattern> <opt-dirname> <bin-subdir-or-empty
   return 0
 }
 
-# curl | sh, but with -f so an HTTP error page is never piped into a shell.
+# Download with -f, then use Bash for installers that require Bash syntax.
 install_via_script() {  # <url> [args...]
   local url="$1"; shift
   local tmp; tmp=$(mktemp) || return 1
@@ -100,7 +100,7 @@ install_via_script() {  # <url> [args...]
   [ -s "$tmp" ] || { rm -f "$tmp"; err "empty installer: $url"; return 1; }
   logline "--- installer script head ---"
   head -5 "$tmp" | strip_ansi >> "$LOGFILE" 2>/dev/null
-  runsh "sh '$tmp' $*"
+  run bash "$tmp" "$@"
   local rc=$?
   rm -f "$tmp"
   return $rc
